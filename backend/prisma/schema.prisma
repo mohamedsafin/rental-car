@@ -1,0 +1,72 @@
+// ---------------------------------------------------------------------------
+// Prisma schema — UAE Car Rental System
+// ---------------------------------------------------------------------------
+// This file is the single source of truth for the database. You change this
+// file, then run `npm run prisma:migrate` to generate SQL and apply it.
+//
+// PHASE 1 SCOPE: only the plumbing plus `SystemSetting`.
+// Models are added phase by phase (see docs/database.md for the full plan) so
+// that every table arrives together with the code that uses it.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Grouping for admin-editable settings, so the Admin UI can render them
+/// as tabs without hardcoding a list of keys.
+enum SettingCategory {
+  COMPANY
+  RENTAL_POLICY
+  PRICING
+  DOCUMENTS
+  PAYMENT
+  NOTIFICATION
+  LEGAL
+  SYSTEM
+}
+
+/// Type hint for rendering + parsing a setting value in the Admin UI.
+enum SettingValueType {
+  STRING
+  NUMBER
+  BOOLEAN
+  JSON
+  DATE
+}
+
+/// Admin-configurable settings.
+///
+/// The BRD repeatedly says values like VAT rate, deposit amount, cancellation
+/// window, minimum rental age and document requirements are "to be provided by
+/// the client". Rather than hardcode placeholder numbers we would later have to
+/// hunt down, every such value lives here and is editable from the Admin
+/// Dashboard. This table exists from day one because later modules (pricing,
+/// cancellation, deposits) will read from it.
+model SystemSetting {
+  id           String           @id @default(uuid()) @db.Uuid
+  /// Stable machine key, e.g. "pricing.vat_percentage".
+  key          String           @unique
+  /// Value stored as text; `valueType` says how to parse it.
+  value        String
+  valueType    SettingValueType @default(STRING)
+  category     SettingCategory  @default(SYSTEM)
+  /// Human label shown in the Admin UI.
+  label        String
+  description  String?
+  /// `false` = admin-editable. `true` = internal, hidden from the settings UI.
+  isSystem     Boolean          @default(false)
+  /// Secrets (API keys) are never returned by the public settings endpoint.
+  isSecret     Boolean          @default(false)
+
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([category])
+  @@map("system_settings")
+}

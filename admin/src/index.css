@@ -1,0 +1,18 @@
+/* Tailwind CSS v4 - a single import replaces the old three @tailwind lines. */
+@import 'tailwindcss';
+
+/* Design tokens. Real brand colours come from the client's logo/brand guide
+   (BRD 51), so these are neutral placeholders we will replace, not invent. */
+@theme {
+  --color-brand-50: oklch(0.97 0.02 250);
+  --color-brand-100: oklch(0.93 0.04 250);
+  --color-brand-500: oklch(0.58 0.16 250);
+  --color-brand-600: oklch(0.51 0.16 250);
+  --color-brand-700: oklch(0.44 0.14 250);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}

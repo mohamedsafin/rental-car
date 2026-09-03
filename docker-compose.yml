@@ -1,0 +1,42 @@
+# ---------------------------------------------------------------------------
+# docker-compose.yml
+# ---------------------------------------------------------------------------
+# Optional. Docker is NOT required for local development on this machine -
+# PostgreSQL 18 is installed natively and that is what Phase 1 uses.
+#
+# This file exists so that:
+#   - a new developer can get an identical database with one command
+#   - CI can spin up a throwaway database for tests
+#   - deployment has a known-good container definition to start from
+#
+# Usage:  docker compose up -d db
+# ---------------------------------------------------------------------------
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: car-rental-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-car_rental_dev}
+    ports:
+      # Host 5433 -> container 5432, so this never clashes with a natively
+      # installed PostgreSQL already listening on 5432.
+      - '5433:5432'
+    volumes:
+      - car-rental-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-car_rental_dev}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Enable from Phase 11 (rate limiting, sessions, job queue).
+  # cache:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - '6379:6379'
+
+volumes:
+  car-rental-db-data:
