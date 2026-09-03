@@ -210,3 +210,235 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_logs")
 }
+
+// ===========================================================================
+// PHASE 3 - Fleet: categories, vehicles, images, features, locations
+// ===========================================================================
+
+enum VehicleStatus {
+  AVAILABLE
+  RESERVED
+  RENTED
+  UNDER_INSPECTION
+  UNDER_MAINTENANCE
+  UNAVAILABLE
+}
+
+enum Transmission {
+  AUTOMATIC
+  MANUAL
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  HYBRID
+  ELECTRIC
+}
+
+/// Where an image sits on the vehicle. BRD 41 lists the exterior and interior
+/// shots the client expects; typing them lets the customer gallery order shots
+/// predictably instead of relying on upload order.
+enum VehicleImageType {
+  EXTERIOR_FRONT
+  EXTERIOR_REAR
+  EXTERIOR_LEFT
+  EXTERIOR_RIGHT
+  INTERIOR_DASHBOARD
+  INTERIOR_FRONT
+  INTERIOR_REAR
+  INTERIOR_SEATS
+  OTHER
+}
+
+enum LocationType {
+  OFFICE
+  AIRPORT
+  HOTEL
+  DELIVERY_AREA
+}
+
+/// Economy, Sedan, SUV, Luxury... BRD 8 says the real list comes from the
+/// client, so this is a table the admin manages, not a hardcoded enum.
+model VehicleCategory {
+  id           String  @id @default(uuid()) @db.Uuid
+  name         String  @unique
+  /// URL-friendly key used by the customer site, e.g. "suv".
+  slug         String  @unique
+  description  String?
+  /// Controls the order categories appear on the customer site.
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  vehicles Vehicle[]
+
+  @@index([isActive])
+  @@map("vehicle_categories")
+}
+
+/// Bluetooth, GPS, Apple CarPlay... (BRD 9). A lookup table rather than a text
+/// column on the vehicle, so the customer site can offer "filter by feature"
+/// without matching on free text.
+model VehicleFeature {
+  id       String  @id @default(uuid()) @db.Uuid
+  name     String  @unique
+  slug     String  @unique
+  /// Optional icon key for the UI, e.g. "bluetooth".
+  icon     String?
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicles VehicleFeatureOnVehicle[]
+
+  @@map("vehicle_features")
+}
+
+/// Explicit many-to-many join. Prisma could manage an implicit relation table,
+/// but an explicit one lets us add columns later (e.g. "included" vs "optional
+/// extra") without a painful migration.
+model VehicleFeatureOnVehicle {
+  vehicleId String @db.Uuid
+  featureId String @db.Uuid
+
+  vehicle Vehicle        @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  feature VehicleFeature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([vehicleId, featureId])
+  @@index([featureId])
+  @@map("vehicle_features_on_vehicles")
+}
+
+/// A single physical car in the fleet.
+///
+/// Money is Decimal(10,2), never Float: floating point cannot represent
+/// AED 0.10 exactly, and a rounding error in a 30-day rental total is a real
+/// customer dispute.
+///
+/// `status` here is the vehicle's OWN state (in the workshop, retired from the
+/// fleet). It is NOT "is this car free next Tuesday" - that is derived from
+/// bookings in Phase 4. Conflating the two is how double bookings happen.
+model Vehicle {
+  id String @id @default(uuid()) @db.Uuid
+
+  brand              String
+  model              String
+  year               Int
+  variant            String?
+  /// UAE plate. Unique across the fleet - BRD 41 requires it.
+  registrationNumber String  @unique
+
+  categoryId String          @db.Uuid
+  category   VehicleCategory @relation(fields: [categoryId], references: [id])
+
+  seats        Int
+  doors        Int          @default(4)
+  transmission Transmission
+  fuelType     FuelType
+  color        String?
+
+  dailyPrice         Decimal  @db.Decimal(10, 2)
+  weeklyPrice        Decimal? @db.Decimal(10, 2)
+  monthlyPrice       Decimal? @db.Decimal(10, 2)
+  securityDeposit    Decimal  @db.Decimal(10, 2)
+  /// Kilometres included per day. Null = unlimited.
+  mileageLimitPerDay Int?
+  /// Charge per km over the allowance.
+  extraMileageCharge Decimal? @db.Decimal(10, 2)
+
+  status         VehicleStatus @default(AVAILABLE)
+  /// Odometer reading, updated at each return (Phase 8).
+  currentMileage Int           @default(0)
+  locationId     String?       @db.Uuid
+  location       Location?     @relation(fields: [locationId], references: [id])
+
+  /// Shown in the "Featured cars" section of the home page (BRD 5).
+  isFeatured  Boolean @default(false)
+  /// Hidden from the customer site without being deleted.
+  isPublished Boolean @default(true)
+
+  description String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Soft delete: a vehicle with rental history must never be hard-deleted.
+  deletedAt DateTime?
+
+  images   VehicleImage[]
+  features VehicleFeatureOnVehicle[]
+
+  // Indexes chosen for the queries the customer site actually runs: browse by
+  // category, filter by status, and (Phase 4) the availability lookup.
+  @@index([categoryId])
+  @@index([status])
+  @@index([isPublished, deletedAt])
+  @@index([locationId])
+  @@map("vehicles")
+}
+
+model VehicleImage {
+  id        String  @id @default(uuid()) @db.Uuid
+  vehicleId String  @db.Uuid
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  /// Opaque key from the storage provider (local path, S3 key, Cloudinary id).
+  /// NOT a URL: the URL is built at read time, so switching provider later does
+  /// not mean rewriting every row.
+  storageKey String
+  type       VehicleImageType @default(OTHER)
+  /// Accessibility text; defaulted from the vehicle name when left blank.
+  altText    String?
+  /// Exactly one image per vehicle is primary - the card thumbnail.
+  isPrimary  Boolean          @default(false)
+  sortOrder  Int              @default(0)
+  sizeBytes  Int?
+  mimeType   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([vehicleId])
+  @@map("vehicle_images")
+}
+
+/// Rental offices, airport counters, hotels and delivery areas (BRD 38).
+model Location {
+  id   String       @id @default(uuid()) @db.Uuid
+  name String
+  slug String       @unique
+  type LocationType @default(OFFICE)
+
+  address String?
+  emirate String?
+  phone   String?
+  email   String?
+
+  /// Opening hours as JSON, e.g.
+  /// { "mon": { "open": "08:00", "close": "20:00" }, "sun": null }
+  /// JSON rather than seven columns because the client has not confirmed the
+  /// shape, and BRD 38 only says "working hours".
+  workingHours Json?
+
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
+  /// Fee for delivering a vehicle here. 0 = free.
+  deliveryCharge Decimal @default(0) @db.Decimal(10, 2)
+  isPickupPoint  Boolean @default(true)
+  isDropoffPoint Boolean @default(true)
+  isActive       Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  vehicles Vehicle[]
+
+  @@index([type])
+  @@index([isActive])
+  @@map("locations")
+}

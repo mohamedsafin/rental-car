@@ -11,17 +11,22 @@ import { Router } from 'express';
 import { healthRoutes } from '../modules/health/routes';
 import { authRoutes } from '../modules/auth/routes';
 import { userRoutes } from '../modules/users/routes';
+import { categoryRoutes } from '../modules/categories/routes';
+import { featureRoutes } from '../modules/features/routes';
+import { vehicleRoutes } from '../modules/vehicles/routes';
+import { locationRoutes } from '../modules/locations/routes';
 
 const router = Router();
 
 router.use('/health', healthRoutes);
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
+router.use('/categories', categoryRoutes);
+router.use('/features', featureRoutes);
+router.use('/vehicles', vehicleRoutes);
+router.use('/locations', locationRoutes);
 
 // --- Mounted in later phases -------------------------------------------
-// router.use('/vehicles', vehicleRoutes);       // Phase 3
-// router.use('/categories', categoryRoutes);    // Phase 3
-// router.use('/locations', locationRoutes);     // Phase 3
 // router.use('/availability', availabilityRoutes); // Phase 4
 // router.use('/pricing', pricingRoutes);        // Phase 4
 // router.use('/customers', customerRoutes);     // Phase 5

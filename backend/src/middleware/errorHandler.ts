@@ -16,6 +16,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { ApiError, ErrorCode, type ErrorCodeValue, type FieldError } from '../utils/ApiError';
+import { normaliseMulterError } from './upload';
 import type { ErrorResponse } from '../utils/apiResponse';
 import { isProduction } from '../config/env';
 import { logger } from '../config/logger';
@@ -30,6 +31,18 @@ interface NormalisedError {
 }
 
 function normalise(error: unknown): NormalisedError {
+  // Multer throws its own error class for size/count limits. Translate first so
+  // an oversized upload reads as a 400 with a helpful message, not a 500.
+  const multerError = normaliseMulterError(error);
+  if (multerError) {
+    return {
+      statusCode: multerError.statusCode,
+      message: multerError.message,
+      code: multerError.code,
+      errors: [],
+    };
+  }
+
   if (error instanceof ApiError) {
     return {
       statusCode: error.statusCode,

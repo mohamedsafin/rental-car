@@ -137,11 +137,67 @@ instance.
 
 ---
 
+## Phase 3 endpoints
+
+Every fleet resource follows the same shape: **public reads, admin writes.**
+
+### Vehicles
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/vehicles` | optional | Paginated, filterable listing |
+| GET | `/vehicles/:id` | optional | One vehicle |
+| POST | `/vehicles` | ADMIN | Add to the fleet |
+| PATCH | `/vehicles/:id` | ADMIN | Update |
+| DELETE | `/vehicles/:id` | ADMIN | Soft delete |
+| POST | `/vehicles/:id/images` | ADMIN | Upload up to 10 images (multipart) |
+| PATCH | `/vehicles/:id/images/:imageId/primary` | ADMIN | Set the card thumbnail |
+| DELETE | `/vehicles/:id/images/:imageId` | ADMIN | Remove an image |
+
+`optional` auth means the endpoint works anonymously, but a valid ADMIN/STAFF token widens the response. The **same** endpoint serves both audiences:
+
+| | Public caller | ADMIN / STAFF caller |
+| --- | --- | --- |
+| `registrationNumber` | `null` | the plate |
+| Unpublished vehicles | invisible (404 / absent) | visible with `includeUnpublished=true` |
+| `status` filter | ignored | applied |
+| Search matches plate | no | yes |
+
+The flag is derived from the verified JWT, never from a query parameter — a customer sending `includeUnpublished=true` gets the public view regardless.
+
+**Filters:** `category` (slug), `categoryId`, `transmission`, `fuelType`, `seats`, `minPrice`, `maxPrice`, `locationId`, `search`, `sort` (`newest` | `price_asc` | `price_desc` | `year_desc`), `page`, `limit`.
+
+### Categories, features, locations
+
+| Method | Endpoint | Auth |
+| --- | --- | --- |
+| GET | `/categories`, `/features`, `/locations` | public |
+| POST / PATCH / DELETE | same paths | ADMIN |
+
+### Money format
+
+Every monetary value crosses the API as a **fixed 2-decimal string**, not a number:
+
+```json
+"pricing": { "daily": "650.00", "securityDeposit": "3000.00", "currency": "AED" }
+```
+
+JSON numbers are IEEE-754 doubles. Sending `650.00` as a number and reading it back can yield `649.9999999999999`, and a 30-day total built from that is wrong by real money. The string survives Postgres `DECIMAL(10,2)` → API → browser unchanged. **Display it; never compute with it** — totals come from the pricing engine in Phase 4.
+
+### File uploads
+
+`POST /vehicles/:id/images` takes `multipart/form-data` with an `images` field (up to 10 files, 10 MB each) and an optional `?type=` query naming the shot (`EXTERIOR_FRONT`, `INTERIOR_DASHBOARD`, …).
+
+Two validation layers: multer checks the declared MIME type and size; the service then checks the file's **magic bytes**. A declared content type is a string the client chose — `shell.php` sent as `image/jpeg` passes the first check and fails the second.
+
+Images are stored under an opaque provider key and served from `/uploads/...`. The URL is built at read time, so moving to S3 changes one file and no data.
+
+---
+
 ## Planned endpoints
 
 | Phase | Prefix |
 | --- | --- |
-| 3 | `/vehicles`, `/categories`, `/locations` |
 | 4 | `/availability`, `/pricing` |
 | 5 | `/customers`, `/documents` |
 | 6 | `/bookings` |

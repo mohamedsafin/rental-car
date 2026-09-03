@@ -23,6 +23,16 @@ export default function PublicLayout() {
           </Link>
 
           <nav className="flex items-center gap-3 text-sm">
+            <NavLink
+              to="/cars"
+              className={({ isActive }) =>
+                isActive
+                  ? 'rounded-md bg-slate-100 px-3 py-1.5 font-medium text-slate-900'
+                  : 'rounded-md px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100'
+              }
+            >
+              Cars
+            </NavLink>
             {isLoading ? (
               <span className="text-slate-400">…</span>
             ) : isAuthenticated ? (

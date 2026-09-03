@@ -15,6 +15,9 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import LoginPage from '../pages/LoginPage';
 import DashboardPage from '../pages/DashboardPage';
 import UsersPage from '../pages/UsersPage';
+import VehiclesPage from '../pages/VehiclesPage';
+import VehicleFormPage from '../pages/VehicleFormPage';
+import LocationsPage from '../pages/LocationsPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 export default function AppRoutes() {
@@ -25,9 +28,13 @@ export default function AppRoutes() {
       <Route element={<ProtectedRoute allowedRoles={['ADMIN', 'STAFF']} />}>
         <Route element={<AdminLayout />}>
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/vehicles" element={<VehiclesPage />} />
+          <Route path="/vehicles/new" element={<VehicleFormPage />} />
+          <Route path="/vehicles/:id" element={<VehicleFormPage />} />
+          <Route path="/locations" element={<LocationsPage />} />
           <Route path="/users" element={<UsersPage />} />
-          {/* Phase 3+: /vehicles, /bookings, /customers, /documents,
-              /payments, /reports, /settings */}
+          {/* Phase 5+: /customers, /documents. Phase 6+: /bookings.
+              Phase 7+: /payments. Phase 10+: /reports, /settings */}
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>

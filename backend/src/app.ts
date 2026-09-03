@@ -24,6 +24,7 @@ import { requestId } from './middleware/requestId';
 import { notFound } from './middleware/notFound';
 import { errorHandler } from './middleware/errorHandler';
 import { apiV1Router } from './routes';
+import { storage, LocalStorageProvider } from './services/storage';
 import { ApiError, ErrorCode } from './utils/ApiError';
 
 export function createApp(): Application {
@@ -96,7 +97,23 @@ export function createApp(): Application {
     }),
   );
 
-  // 8. API routes.
+  // 8. Publicly served files (vehicle images only).
+  //    Note the path: this serves the storage root's `public/` folder ONLY.
+  //    Private uploads live in a sibling `private/` folder that is never
+  //    mounted here - customer documents (Phase 5) go through an authorised
+  //    route instead, per BRD 12.
+  if (storage instanceof LocalStorageProvider) {
+    app.use(
+      '/uploads',
+      express.static(storage.publicDirectory(), {
+        maxAge: isProduction ? '7d' : 0,
+        index: false,
+        dotfiles: 'deny',
+      }),
+    );
+  }
+
+  // 9. API routes.
   app.use(env.API_PREFIX, apiV1Router);
 
   // 9. Nothing matched.

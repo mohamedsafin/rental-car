@@ -37,13 +37,13 @@ untested.
 Roles are an enum (`CUSTOMER`, `ADMIN`, `STAFF`) rather than a table — three
 fixed roles do not need a join.
 
-### Phase 3 — fleet
+### Phase 3 — fleet (done)
 | Table | Purpose |
 | --- | --- |
 | `vehicle_categories` | Economy, Sedan, SUV, ... (client-provided). |
 | `vehicles` | The fleet. Unique `registrationNumber`. |
-| `vehicle_images` | Multiple images per vehicle, tagged FRONT/REAR/INTERIOR/... |
-| `vehicle_features` | Bluetooth, GPS, CarPlay, ... many-to-many. |
+| `vehicle_images` | Typed shots per vehicle. Stores an opaque `storageKey`, never a URL — the URL is built at read time so the storage provider can change without rewriting rows. |
+| `vehicle_features` + `vehicle_features_on_vehicles` | Bluetooth, GPS, CarPlay... A lookup table with an explicit join, so "filter by feature" is an index lookup rather than a text match, and the join can gain columns later. |
 | `locations` | Offices, airports, delivery areas, working hours, delivery charge. |
 
 ### Phase 4 — money and availability

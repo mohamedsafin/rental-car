@@ -63,6 +63,10 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
 
+  // Public base URL of this API, used to build URLs for stored files. In
+  // production this is the real domain, not localhost.
+  PUBLIC_API_URL: z.string().url().default('http://localhost:4000'),
+
   // File storage
   STORAGE_DRIVER: z.enum(['local', 's3', 'cloudinary']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./uploads'),

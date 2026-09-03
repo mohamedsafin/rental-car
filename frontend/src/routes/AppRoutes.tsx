@@ -9,6 +9,8 @@ import { Route, Routes } from 'react-router-dom';
 import PublicLayout from '../layouts/PublicLayout';
 import ProtectedRoute from '../components/ProtectedRoute';
 import HomePage from '../pages/HomePage';
+import CarsPage from '../pages/CarsPage';
+import CarDetailsPage from '../pages/CarDetailsPage';
 import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
 import AccountPage from '../pages/AccountPage';
@@ -20,6 +22,8 @@ export default function AppRoutes() {
       <Route element={<PublicLayout />}>
         {/* Public */}
         <Route path="/" element={<HomePage />} />
+        <Route path="/cars" element={<CarsPage />} />
+        <Route path="/cars/:id" element={<CarDetailsPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
 
@@ -29,7 +33,7 @@ export default function AppRoutes() {
           {/* Phase 5+: /account/documents, /account/bookings, /account/invoices */}
         </Route>
 
-        {/* Phase 3+: /cars, /cars/:id, /booking, /checkout, /faq, /terms */}
+        {/* Phase 6+: /booking, /checkout. Phase 10+: /faq, /terms */}
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

@@ -23,8 +23,8 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Fleet',
     items: [
-      { label: 'Vehicles', phase: 'Phase 3' },
-      { label: 'Categories', phase: 'Phase 3' },
+      { label: 'Vehicles', to: '/vehicles' },
+      { label: 'Categories', phase: 'Phase 4' },
       { label: 'Maintenance', phase: 'Phase 9' },
       { label: 'Insurance', phase: 'Phase 9' },
     ],
@@ -60,7 +60,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: 'System',
     items: [
       { label: 'Pricing', phase: 'Phase 4' },
-      { label: 'Locations', phase: 'Phase 3' },
+      { label: 'Locations', to: '/locations' },
       { label: 'Reports', phase: 'Phase 10' },
       { label: 'Settings', phase: 'Phase 10' },
       { label: 'Audit logs', phase: 'Phase 11' },

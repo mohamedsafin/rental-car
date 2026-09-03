@@ -9,12 +9,13 @@ document requirements — are **configurable settings, not hardcoded numbers**.
 
 ## Status
 
-**Phase 2 complete — Authentication, users, roles & RBAC.** See
+**Phase 3 complete — Fleet: vehicles, categories, locations, images.** See
 [docs/development-plan.md](docs/development-plan.md) for the roadmap.
 
-Done so far: monorepo foundation, health checks, JWT auth with refresh-token
-rotation, three roles with backend-enforced RBAC, admin user management and an
-audit trail.
+Done so far: monorepo foundation and health checks; JWT auth with
+refresh-token rotation and backend-enforced RBAC; and the fleet — vehicle CRUD
+with validated image upload, categories, features and locations, browsable on
+the customer site and managed from the admin dashboard.
 
 ## Stack
 

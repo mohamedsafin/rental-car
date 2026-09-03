@@ -95,6 +95,59 @@ async function main(): Promise<void> {
   }
 
   console.log(`Seeded ${settings.length} system settings (values left blank for the client to confirm).`);
+
+  // --- Fleet reference data ----------------------------------------------
+  // Categories and features come straight from the BRD's own examples (8 and
+  // 9). They are STRUCTURE, not invented business values - the admin can
+  // rename, reorder or deactivate any of them, and BRD 8 explicitly says the
+  // final list comes from the client.
+  const categories = [
+    { name: 'Economy', slug: 'economy', displayOrder: 1 },
+    { name: 'Sedan', slug: 'sedan', displayOrder: 2 },
+    { name: 'SUV', slug: 'suv', displayOrder: 3 },
+    { name: 'Luxury', slug: 'luxury', displayOrder: 4 },
+    { name: 'Sports', slug: 'sports', displayOrder: 5 },
+    { name: 'Electric', slug: 'electric', displayOrder: 6 },
+    { name: 'Premium', slug: 'premium', displayOrder: 7 },
+  ];
+
+  for (const category of categories) {
+    await prisma.vehicleCategory.upsert({
+      where: { slug: category.slug },
+      update: {},
+      create: category,
+    });
+  }
+  console.log(`Seeded ${categories.length} vehicle categories.`);
+
+  const features = [
+    { name: 'Bluetooth', slug: 'bluetooth' },
+    { name: 'GPS Navigation', slug: 'gps-navigation' },
+    { name: 'Apple CarPlay', slug: 'apple-carplay' },
+    { name: 'Android Auto', slug: 'android-auto' },
+    { name: 'Reverse Camera', slug: 'reverse-camera' },
+    { name: 'Parking Sensors', slug: 'parking-sensors' },
+    { name: 'Cruise Control', slug: 'cruise-control' },
+    { name: 'Leather Seats', slug: 'leather-seats' },
+  ];
+
+  for (const feature of features) {
+    await prisma.vehicleFeature.upsert({
+      where: { slug: feature.slug },
+      update: {},
+      create: feature,
+    });
+  }
+  console.log(`Seeded ${features.length} vehicle features.`);
+
+  // No locations are seeded. BRD 51 says office addresses, delivery areas,
+  // working hours and delivery charges all come from the client, and inventing
+  // a plausible-looking "Dubai Airport, AED 50" would be exactly the kind of
+  // fake data that quietly ships to production.
+  const locationCount = await prisma.location.count();
+  if (locationCount === 0) {
+    console.log('No locations seeded - add real ones in the admin dashboard (BRD 38).');
+  }
 }
 
 main()
