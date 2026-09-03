@@ -48,7 +48,9 @@ export function createApp(): Application {
         if (!origin) return callback(null, true);
         if (env.CORS_ORIGINS.includes(origin)) return callback(null, true);
         logger.warn('Blocked CORS origin', { origin });
-        return callback(new Error('Not allowed by CORS'));
+        // A blocked origin is expected traffic, not a server fault. Returning a
+        // plain Error here would surface as a 500 and log at ERROR level.
+        return callback(ApiError.forbidden('Origin not allowed'));
       },
       credentials: true,
       exposedHeaders: ['X-Request-Id'],

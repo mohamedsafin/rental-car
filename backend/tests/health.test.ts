@@ -60,6 +60,23 @@ describe('GET /api/v1/health', () => {
   });
 });
 
+describe('CORS', () => {
+  it('allows the customer site and the admin site', async () => {
+    for (const origin of ['http://localhost:5173', 'http://localhost:5174']) {
+      const res = await request(app).get(`${API}/health`).set('Origin', origin);
+      expect(res.headers['access-control-allow-origin']).toBe(origin);
+    }
+  });
+
+  it('rejects an unlisted origin with 403, not 500', async () => {
+    const res = await request(app).get(`${API}/health`).set('Origin', 'http://evil.example.com');
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+});
+
 describe('error handling', () => {
   it('returns the standard error envelope for an unknown route', async () => {
     const res = await request(app).get(`${API}/this-route-does-not-exist`);
