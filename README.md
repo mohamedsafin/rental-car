@@ -9,8 +9,12 @@ document requirements — are **configurable settings, not hardcoded numbers**.
 
 ## Status
 
-**Phase 1 — Project foundation.** See [docs/development-plan.md](docs/development-plan.md)
-for the roadmap.
+**Phase 2 complete — Authentication, users, roles & RBAC.** See
+[docs/development-plan.md](docs/development-plan.md) for the roadmap.
+
+Done so far: monorepo foundation, health checks, JWT auth with refresh-token
+rotation, three roles with backend-enforced RBAC, admin user management and an
+audit trail.
 
 ## Stack
 
@@ -55,6 +59,12 @@ cp admin/.env.example admin/.env
 
 # 5. Create the database tables
 npm run prisma:migrate --workspace backend
+
+# 6. Create the first admin account
+#    Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD in backend/.env first.
+#    There is no other way to make an admin: public registration always
+#    creates a CUSTOMER.
+npm run prisma:seed --workspace backend
 ```
 
 ## Running
@@ -81,6 +91,7 @@ npm run test:watch --workspace backend    # watch mode
 | Command | What it does |
 | --- | --- |
 | `npm run prisma:studio --workspace backend` | Browse the database in a GUI |
+| `npm run prisma:seed --workspace backend` | Create/reset the first admin account |
 | `npm run prisma:migrate --workspace backend` | Create and apply a migration after editing the schema |
 | `npm run prisma:generate --workspace backend` | Regenerate the typed Prisma client |
 | `npm run typecheck --workspace backend` | Type-check without emitting |

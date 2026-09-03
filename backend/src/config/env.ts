@@ -46,6 +46,19 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(10).max(15).default(12),
 
+  // Brute-force protection on login.
+  AUTH_MAX_FAILED_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  AUTH_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
+
+  // Refresh-token cookie.
+  // SameSite is decided by SITE, not origin - the port is not part of a site -
+  // so 'lax' correctly covers localhost:5173 -> localhost:4000 in dev, and
+  // app.example.com -> api.example.com in production. Only a genuinely
+  // cross-site deployment needs 'none', which also requires secure=true.
+  COOKIE_SECURE: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+  COOKIE_DOMAIN: z.string().optional(),
+
   // Rate limiting
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),

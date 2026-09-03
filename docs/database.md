@@ -27,11 +27,11 @@ untested.
 | --- | --- |
 | `system_settings` | Every admin-configurable value from the BRD (VAT %, deposit rules, cancellation window, minimum age, required documents, reminder periods). |
 
-### Phase 2 — identity
+### Phase 2 — identity (done)
 | Table | Purpose |
 | --- | --- |
-| `users` | Login identity for all three roles. Stores the bcrypt hash, never a password. |
-| `refresh_tokens` | Hashed refresh tokens, so a stolen one can be revoked. |
+| `users` | Login identity for all three roles. bcrypt hash only, never a password. Carries `failedLoginAttempts` / `lockedUntil` for brute-force lockout, and a `deletedAt` soft delete. |
+| `refresh_tokens` | SHA-256 hashes of issued refresh tokens. Storing hashes (not tokens) means a leak of this table yields nothing replayable; storing them at all is what makes revocation possible, which a stateless JWT cannot do. |
 | `audit_logs` | Who changed what, when, from where. |
 
 Roles are an enum (`CUSTOMER`, `ADMIN`, `STAFF`) rather than a table — three

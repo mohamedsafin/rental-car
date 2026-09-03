@@ -94,11 +94,53 @@ instance.
 
 ---
 
+## Phase 2 endpoints
+
+### Authentication
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/auth/register` | public | Create a CUSTOMER account. A `role` field in the body is **ignored**. |
+| POST | `/auth/login` | public | Sign in. Sets the `refreshToken` httpOnly cookie. |
+| POST | `/auth/refresh` | cookie | Rotate the refresh token, get a new access token. |
+| POST | `/auth/logout` | cookie | Revoke this session. |
+| GET | `/auth/me` | bearer | The signed-in user. |
+| PATCH | `/auth/me` | bearer | Update own name / phone / country. |
+| POST | `/auth/change-password` | bearer | Change password; revokes **all** sessions. |
+| POST | `/auth/logout-all` | bearer | Sign out on every device. |
+
+### User management (ADMIN only)
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/users` | Paginated list; filter by `role`, `status`, `search`. |
+| POST | `/users` | Create an ADMIN or STAFF account. |
+| GET | `/users/:id` | One user. |
+| PATCH | `/users/:id` | Change name, role or status. |
+| DELETE | `/users/:id` | Soft delete (deactivate). |
+
+### Tokens
+
+- **Access token** — 15 minutes, sent as `Authorization: Bearer <token>`. Self-contained, so verifying it costs no database query. Cannot be revoked early; a suspended user keeps working for at most 15 minutes.
+- **Refresh token** — 7 days, delivered as an httpOnly cookie scoped to `/api/v1/auth`. Page JavaScript cannot read it, so XSS cannot steal it. Its SHA-256 hash is stored in `refresh_tokens`, which is what makes revocation possible.
+
+**Rotation and theft detection.** Every `/auth/refresh` issues a new refresh token and revokes the old one. Presenting an already-revoked token means either a race or a stolen token being replayed; we cannot tell which, so we assume theft and revoke **every** token for that user.
+
+### Auth-specific status codes
+
+| Code | Meaning |
+| --- | --- |
+| 401 | Not authenticated — no token, bad token, or expired session |
+| 403 | Authenticated but not permitted (wrong role), or account suspended |
+| 423 | Account locked after 5 failed login attempts (15 minutes) |
+| 429 | Rate limited — 10 failed logins / 15 min, 5 registrations / hour, per IP |
+
+---
+
 ## Planned endpoints
 
 | Phase | Prefix |
 | --- | --- |
-| 2 | `/auth`, `/users` |
 | 3 | `/vehicles`, `/categories`, `/locations` |
 | 4 | `/availability`, `/pricing` |
 | 5 | `/customers`, `/documents` |

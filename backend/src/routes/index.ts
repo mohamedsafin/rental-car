@@ -9,14 +9,16 @@
  */
 import { Router } from 'express';
 import { healthRoutes } from '../modules/health/routes';
+import { authRoutes } from '../modules/auth/routes';
+import { userRoutes } from '../modules/users/routes';
 
 const router = Router();
 
 router.use('/health', healthRoutes);
+router.use('/auth', authRoutes);
+router.use('/users', userRoutes);
 
 // --- Mounted in later phases -------------------------------------------
-// router.use('/auth', authRoutes);              // Phase 2
-// router.use('/users', userRoutes);             // Phase 2
 // router.use('/vehicles', vehicleRoutes);       // Phase 3
 // router.use('/categories', categoryRoutes);    // Phase 3
 // router.use('/locations', locationRoutes);     // Phase 3

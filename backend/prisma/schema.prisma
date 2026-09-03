@@ -49,24 +49,164 @@ enum SettingValueType {
 /// Dashboard. This table exists from day one because later modules (pricing,
 /// cancellation, deposits) will read from it.
 model SystemSetting {
-  id           String           @id @default(uuid()) @db.Uuid
+  id          String           @id @default(uuid()) @db.Uuid
   /// Stable machine key, e.g. "pricing.vat_percentage".
-  key          String           @unique
+  key         String           @unique
   /// Value stored as text; `valueType` says how to parse it.
-  value        String
-  valueType    SettingValueType @default(STRING)
-  category     SettingCategory  @default(SYSTEM)
+  value       String
+  valueType   SettingValueType @default(STRING)
+  category    SettingCategory  @default(SYSTEM)
   /// Human label shown in the Admin UI.
-  label        String
-  description  String?
+  label       String
+  description String?
   /// `false` = admin-editable. `true` = internal, hidden from the settings UI.
-  isSystem     Boolean          @default(false)
+  isSystem    Boolean          @default(false)
   /// Secrets (API keys) are never returned by the public settings endpoint.
-  isSecret     Boolean          @default(false)
+  isSecret    Boolean          @default(false)
 
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([category])
   @@map("system_settings")
+}
+
+// ===========================================================================
+// PHASE 2 - Identity, access control and audit
+// ===========================================================================
+
+/// The three roles from the BRD. An enum rather than a roles table: there are
+/// exactly three, they are fixed, and a join buys us nothing.
+enum Role {
+  CUSTOMER
+  ADMIN
+  STAFF
+}
+
+enum UserStatus {
+  ACTIVE
+  /// Set by an admin. Blocks login but preserves the account's rental history.
+  SUSPENDED
+  /// Self-service close. Kept because bookings and invoices reference the user.
+  DEACTIVATED
+}
+
+/// Login identity for all three roles.
+///
+/// One table, not three, because authentication is identical for everyone -
+/// only authorization differs. Role-specific data lives elsewhere: the richer
+/// customer profile (licence details, nationality, date of birth) arrives in
+/// Phase 5 as a `customers` row linked 1:1 to this one.
+///
+/// This table NEVER stores a password. Only a bcrypt hash.
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  /// bcrypt hash. Never selected into any API response - see `toPublicUser`.
+  passwordHash String
+  role         Role       @default(CUSTOMER)
+  status       UserStatus @default(ACTIVE)
+
+  fullName String
+  /// E.164 format, e.g. +971501234567. Optional until Phase 5 requires it.
+  phone    String?
+  /// ISO 3166-1 alpha-2, e.g. AE. The BRD collects country at registration.
+  country  String?
+
+  /// Set when the email is verified. Null = unverified. The verification flow
+  /// itself (and the optional OTP login from BRD 11) is a later phase; the
+  /// column exists now so we never have to migrate the table again for it.
+  emailVerifiedAt DateTime?
+
+  // --- Brute-force protection -------------------------------------------
+  /// Reset to 0 on any successful login.
+  failedLoginAttempts Int       @default(0)
+  /// While in the future, login is refused even with the correct password.
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+
+  /// Soft delete. A user with bookings and invoices must never be hard-deleted.
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  @@index([role])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+/// One row per issued refresh token.
+///
+/// Why store them at all, when a JWT is self-validating? Because a stateless
+/// token cannot be revoked. This table is what makes "log out everywhere" and
+/// "suspend this account now" actually work.
+///
+/// We store a SHA-256 hash of the token, not the token. If this table leaks,
+/// the hashes cannot be replayed as tokens.
+model RefreshToken {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the raw token. Unique so a lookup is a single index hit.
+  tokenHash String   @unique
+  expiresAt DateTime
+
+  /// Set when the token is used (rotation) or the user logs out.
+  revokedAt    DateTime?
+  /// Set on rotation: the token that replaced this one. Lets us detect reuse -
+  /// if a REVOKED token is presented again, it was stolen, and we revoke the
+  /// user's entire token family.
+  replacedById String?   @db.Uuid
+
+  /// Captured for the audit trail and for "your account was accessed from...".
+  userAgent String?
+  ipAddress String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// Append-only record of security- and business-significant actions.
+///
+/// Required by BRD 46 ("activity/audit logs"). Deliberately denormalised:
+/// `actorEmail` and `entityType` are copied in as text so the log still reads
+/// correctly after the referenced user or vehicle is deleted.
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Null for anonymous actions such as a failed login on an unknown email.
+  actorId    String? @db.Uuid
+  actor      User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  /// Snapshot, so the entry survives the actor being deleted.
+  actorEmail String?
+  actorRole  Role?
+
+  /// e.g. "auth.login.success", "user.role.changed", "booking.cancelled".
+  action     String
+  /// e.g. "User", "Vehicle", "Booking".
+  entityType String?
+  entityId   String?
+
+  /// Extra context: which fields changed, why a login failed. Never secrets.
+  metadata Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

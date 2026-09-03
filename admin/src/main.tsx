@@ -4,6 +4,7 @@
  * The app entry point. It wires the three providers every page depends on:
  *
  *   QueryClientProvider  - server state (TanStack Query)
+ *   AuthProvider         - who is signed in (the app's only React Context)
  *   BrowserRouter        - client-side routing
  *   App                  - our route tree
  */
@@ -12,6 +13,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
+import { AuthProvider } from './context/AuthContext';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -32,7 +34,11 @@ createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <App />
+        {/* AuthProvider sits INSIDE BrowserRouter: it renders components that
+            use router hooks, and outside the router those would throw. */}
+        <AuthProvider>
+          <App />
+        </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

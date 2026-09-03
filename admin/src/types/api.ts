@@ -36,6 +36,17 @@ export interface NormalisedApiError {
   requestId?: string;
 }
 
+/** Shape of the `data` payload on any paginated endpoint. */
+export interface PaginatedData<T> {
+  items: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 export type ServiceStatus = 'up' | 'down';
 
 export interface HealthCheckResult {

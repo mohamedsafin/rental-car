@@ -3,32 +3,82 @@
  * ---------------------------------------------------------------------------
  * Sidebar + content shell for the admin/staff dashboard.
  *
- * The sidebar links are stubs in Phase 1. From Phase 2 this layout also
- * enforces "must be logged in as ADMIN or STAFF" - but remember: that check is
- * only a convenience. The backend is what actually enforces permissions.
+ * Sections that exist are real NavLinks; the rest stay greyed out with the
+ * phase that delivers them. "Users & roles" is admin-only in the sidebar, which
+ * matches - but does not replace - `authorize('ADMIN')` on the backend.
  */
-import { Link, Outlet } from 'react-router-dom';
+import { NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+import type { Role } from '../types/auth';
 
-const NAV_SECTIONS = [
-  { title: 'Overview', items: ['Dashboard'] },
-  { title: 'Fleet', items: ['Vehicles', 'Categories', 'Maintenance', 'Insurance'] },
-  { title: 'Rentals', items: ['Bookings', 'Pickups', 'Returns', 'Inspections'] },
-  { title: 'Finance', items: ['Payments', 'Deposits', 'Damages', 'Fines', 'Tolls', 'Invoices'] },
-  { title: 'People', items: ['Customers', 'Documents', 'Users & Roles'] },
-  { title: 'System', items: ['Pricing', 'Coupons', 'Locations', 'Reports', 'Settings', 'Audit Logs'] },
+interface NavItem {
+  label: string;
+  to?: string;
+  roles?: Role[];
+  phase?: string;
+}
+
+const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
+  { title: 'Overview', items: [{ label: 'Dashboard', to: '/' }] },
+  {
+    title: 'Fleet',
+    items: [
+      { label: 'Vehicles', phase: 'Phase 3' },
+      { label: 'Categories', phase: 'Phase 3' },
+      { label: 'Maintenance', phase: 'Phase 9' },
+      { label: 'Insurance', phase: 'Phase 9' },
+    ],
+  },
+  {
+    title: 'Rentals',
+    items: [
+      { label: 'Bookings', phase: 'Phase 6' },
+      { label: 'Pickups', phase: 'Phase 8' },
+      { label: 'Returns', phase: 'Phase 8' },
+      { label: 'Inspections', phase: 'Phase 8' },
+    ],
+  },
+  {
+    title: 'Finance',
+    items: [
+      { label: 'Payments', phase: 'Phase 7' },
+      { label: 'Deposits', phase: 'Phase 7' },
+      { label: 'Damages', phase: 'Phase 9' },
+      { label: 'Fines', phase: 'Phase 9' },
+      { label: 'Invoices', phase: 'Phase 10' },
+    ],
+  },
+  {
+    title: 'People',
+    items: [
+      { label: 'Customers', phase: 'Phase 5' },
+      { label: 'Documents', phase: 'Phase 5' },
+      { label: 'Users & roles', to: '/users', roles: ['ADMIN'] },
+    ],
+  },
+  {
+    title: 'System',
+    items: [
+      { label: 'Pricing', phase: 'Phase 4' },
+      { label: 'Locations', phase: 'Phase 3' },
+      { label: 'Reports', phase: 'Phase 10' },
+      { label: 'Settings', phase: 'Phase 10' },
+      { label: 'Audit logs', phase: 'Phase 11' },
+    ],
+  },
 ];
 
 export default function AdminLayout() {
   const appName = import.meta.env.VITE_APP_NAME ?? 'Admin';
+  const { user, logout } = useAuth();
 
   return (
     <div className="flex min-h-full bg-slate-100">
       <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white lg:block">
         <div className="border-b border-slate-200 px-5 py-4">
-          <Link to="/" className="text-sm font-semibold text-slate-900">
-            {appName}
-          </Link>
+          <span className="text-sm font-semibold text-slate-900">{appName}</span>
         </div>
+
         <nav className="px-3 py-4">
           {NAV_SECTIONS.map((section) => (
             <div key={section.title} className="mb-5">
@@ -36,15 +86,34 @@ export default function AdminLayout() {
                 {section.title}
               </p>
               <ul className="mt-2 space-y-1">
-                {section.items.map((item) => (
-                  <li
-                    key={item}
-                    className="cursor-not-allowed rounded-md px-2 py-1.5 text-sm text-slate-400"
-                    title="Available in a later phase"
-                  >
-                    {item}
-                  </li>
-                ))}
+                {section.items
+                  .filter((item) => !item.roles || (user && item.roles.includes(user.role)))
+                  .map((item) =>
+                    item.to ? (
+                      <li key={item.label}>
+                        <NavLink
+                          to={item.to}
+                          end
+                          className={({ isActive }) =>
+                            isActive
+                              ? 'block rounded-md bg-slate-900 px-2 py-1.5 text-sm font-medium text-white'
+                              : 'block rounded-md px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-100'
+                          }
+                        >
+                          {item.label}
+                        </NavLink>
+                      </li>
+                    ) : (
+                      <li
+                        key={item.label}
+                        title={`Available in ${item.phase}`}
+                        className="flex cursor-not-allowed items-center justify-between rounded-md px-2 py-1.5 text-sm text-slate-400"
+                      >
+                        {item.label}
+                        <span className="text-[10px] text-slate-300">{item.phase}</span>
+                      </li>
+                    ),
+                  )}
               </ul>
             </div>
           ))}
@@ -52,9 +121,25 @@ export default function AdminLayout() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b border-slate-200 bg-white px-6 py-4">
+        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <h1 className="text-base font-semibold text-slate-900">Admin Dashboard</h1>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-slate-600">
+              {user?.fullName}
+              <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                {user?.role}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="rounded-md border border-slate-300 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Sign out
+            </button>
+          </div>
         </header>
+
         <main className="flex-1 p-6">
           <Outlet />
         </main>

@@ -16,6 +16,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
+import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { env, isProduction, isTest } from './config/env';
 import { logger } from './config/logger';
@@ -62,6 +63,10 @@ export function createApp(): Application {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
+  // 4b. Parse cookies. The refresh token arrives as an httpOnly cookie, which
+  //     Express cannot read without this.
+  app.use(cookieParser());
+
   // 5. gzip responses.
   app.use(compression());
 
@@ -83,7 +88,8 @@ export function createApp(): Application {
       max: env.RATE_LIMIT_MAX,
       standardHeaders: 'draft-7',
       legacyHeaders: false,
-      skip: (req) => req.path.startsWith('/health'),
+      // Health checks never count; the whole limiter is off in tests.
+      skip: (req) => isTest || req.path.startsWith('/health'),
       handler: (_req, _res, next) => {
         next(new ApiError(429, 'Too many requests, please try again later', ErrorCode.RATE_LIMITED));
       },
