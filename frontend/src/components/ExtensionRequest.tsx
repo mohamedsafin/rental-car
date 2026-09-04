@@ -44,8 +44,8 @@ export default function ExtensionRequest({ booking }: { booking: Booking }) {
   }
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <h2 className="font-semibold text-slate-900">Need the car for longer?</h2>
+    <section className="rounded-lg border border-ink-200 bg-white p-5">
+      <h2 className="font-semibold text-ink-900">Need the car for longer?</h2>
 
       {pending ? (
         <div className="mt-3 rounded-md border border-purple-200 bg-purple-50 p-3 text-sm text-purple-900">
@@ -72,30 +72,30 @@ export default function ExtensionRequest({ booking }: { booking: Booking }) {
                 </p>
               )}
 
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-ink-600">
                 Currently due back {currentReturn.toLocaleString()}.
               </p>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className="text-sm font-medium text-slate-700">New return date</span>
+                  <span className="text-sm font-medium text-ink-700">New return date</span>
                   <input
                     type="date"
                     required
                     min={minDate}
                     value={newDate}
                     onChange={(e) => setNewDate(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-md border border-ink-300 px-3 py-2 text-sm"
                   />
                 </label>
                 <label className="block">
-                  <span className="text-sm font-medium text-slate-700">New return time</span>
+                  <span className="text-sm font-medium text-ink-700">New return time</span>
                   <input
                     type="time"
                     required
                     value={newTime}
                     onChange={(e) => setNewTime(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-md border border-ink-300 px-3 py-2 text-sm"
                   />
                 </label>
               </div>
@@ -104,14 +104,14 @@ export default function ExtensionRequest({ booking }: { booking: Booking }) {
                 <button
                   type="submit"
                   disabled={requestExtension.isPending || !newDate}
-                  className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  className="rounded-md bg-ink-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                 >
                   {requestExtension.isPending ? 'Checking availability...' : 'Request extension'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  className="text-sm text-slate-600 hover:underline"
+                  className="text-sm text-ink-600 hover:underline"
                 >
                   Cancel
                 </button>
@@ -119,14 +119,14 @@ export default function ExtensionRequest({ booking }: { booking: Booking }) {
             </form>
           ) : (
             <>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-ink-600">
                 We will check the vehicle is free and tell you the extra cost before anything is
                 charged.
               </p>
               <button
                 type="button"
                 onClick={() => setOpen(true)}
-                className="mt-3 rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="mt-3 rounded-md border border-ink-300 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50"
               >
                 Request an extension
               </button>

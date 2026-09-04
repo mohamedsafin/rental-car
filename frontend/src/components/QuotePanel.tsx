@@ -82,46 +82,46 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-slate-200 bg-white p-5">
-        <h3 className="font-semibold text-slate-900">Your rental dates</h3>
+      <div className="rounded-lg border border-ink-200 bg-white p-5">
+        <h3 className="font-semibold text-ink-900">Your rental dates</h3>
 
         <div className="mt-3 grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Pickup date</span>
+            <span className="mb-1 block text-xs font-medium text-ink-600">Pickup date</span>
             <input
               type="date"
               min={TODAY}
               value={dates.pickupDate}
               onChange={(e) => setDates({ ...dates, pickupDate: e.target.value })}
-              className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              className="w-full rounded-md border border-ink-300 px-2 py-1.5 text-sm"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Pickup time</span>
+            <span className="mb-1 block text-xs font-medium text-ink-600">Pickup time</span>
             <input
               type="time"
               value={dates.pickupTime}
               onChange={(e) => setDates({ ...dates, pickupTime: e.target.value })}
-              className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              className="w-full rounded-md border border-ink-300 px-2 py-1.5 text-sm"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Return date</span>
+            <span className="mb-1 block text-xs font-medium text-ink-600">Return date</span>
             <input
               type="date"
               min={dates.pickupDate}
               value={dates.returnDate}
               onChange={(e) => setDates({ ...dates, returnDate: e.target.value })}
-              className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              className="w-full rounded-md border border-ink-300 px-2 py-1.5 text-sm"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Return time</span>
+            <span className="mb-1 block text-xs font-medium text-ink-600">Return time</span>
             <input
               type="time"
               value={dates.returnTime}
               onChange={(e) => setDates({ ...dates, returnTime: e.target.value })}
-              className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              className="w-full rounded-md border border-ink-300 px-2 py-1.5 text-sm"
             />
           </label>
         </div>
@@ -134,14 +134,14 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
       </div>
 
       {serviceData && serviceData.services.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-5">
-          <h3 className="font-semibold text-slate-900">Optional extras</h3>
+        <div className="rounded-lg border border-ink-200 bg-white p-5">
+          <h3 className="font-semibold text-ink-900">Optional extras</h3>
           <ul className="mt-3 space-y-2">
             {serviceData.services.map((service) => (
               <li key={service.id} className="flex items-center justify-between gap-3 text-sm">
                 <div className="min-w-0">
-                  <p className="font-medium text-slate-800">{service.name}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="font-medium text-ink-800">{service.name}</p>
+                  <p className="text-xs text-ink-500">
                     {vehicle.pricing.currency} {service.price}
                     {service.chargeType === 'PER_DAY' ? ' per day' : ' one-off'}
                   </p>
@@ -154,7 +154,7 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
                   onChange={(e) =>
                     setSelected({ ...selected, [service.id]: Number(e.target.value) })
                   }
-                  className="w-16 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                  className="w-16 rounded-md border border-ink-300 px-2 py-1 text-sm"
                 />
               </li>
             ))}
@@ -169,7 +169,7 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
       )}
 
       {isPending && datesValid && (
-        <div className="h-48 animate-pulse rounded-lg bg-slate-200" />
+        <div className="h-48 animate-pulse rounded-lg bg-ink-200" />
       )}
 
       {data && (
@@ -212,20 +212,20 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
                   },
                 );
               }}
-              className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+              className="w-full rounded-md bg-ink-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-300 disabled:text-ink-600"
             >
               {createBooking.isPending ? 'Creating booking...' : 'Book this vehicle'}
             </button>
           ) : (
             <Link
               to="/login"
-              className="block w-full rounded-md bg-slate-900 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-slate-800"
+              className="block w-full rounded-md bg-ink-900 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-ink-800"
             >
               Sign in to book
             </Link>
           )}
 
-          <p className="text-center text-xs text-slate-500">
+          <p className="text-center text-xs text-ink-500">
             Payment is taken at the next step (coming with the payment module).
           </p>
         </>

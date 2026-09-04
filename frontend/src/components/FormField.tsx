@@ -21,7 +21,7 @@ export default function FormField({ label, name, error, hint, ...inputProps }: F
 
   return (
     <div>
-      <label htmlFor={name} className="block text-sm font-medium text-slate-700">
+      <label htmlFor={name} className="block text-sm font-medium text-ink-700">
         {label}
       </label>
       <input
@@ -32,7 +32,7 @@ export default function FormField({ label, name, error, hint, ...inputProps }: F
         className={
           error
             ? 'mt-1 block w-full rounded-md border border-red-400 px-3 py-2 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100'
-            : 'mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100'
+            : 'mt-1 block w-full rounded-md border border-ink-300 px-3 py-2 text-sm outline-none focus:border-ink-500 focus:ring-2 focus:ring-ink-100'
         }
         {...inputProps}
       />
@@ -42,7 +42,7 @@ export default function FormField({ label, name, error, hint, ...inputProps }: F
         </p>
       )}
       {!error && hint && (
-        <p id={hintId} className="mt-1 text-xs text-slate-500">
+        <p id={hintId} className="mt-1 text-xs text-ink-500">
           {hint}
         </p>
       )}

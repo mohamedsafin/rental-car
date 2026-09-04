@@ -45,13 +45,13 @@ export default function MyBookingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to="/account" className="text-sm text-slate-500 hover:underline">
+        <Link to="/account" className="text-sm text-ink-500 hover:underline">
           &larr; My account
         </Link>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">My bookings</h1>
+        <h1 className="mt-1 text-2xl font-bold text-ink-900">My bookings</h1>
       </div>
 
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+      <div className="flex flex-wrap gap-2 border-b border-ink-200 pb-3">
         {TABS.map((tab) => (
           <button
             key={tab.key}
@@ -59,8 +59,8 @@ export default function MyBookingsPage() {
             onClick={() => setParam('scope', tab.key)}
             className={
               scope === tab.key
-                ? 'rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white'
-                : 'rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100'
+                ? 'rounded-md bg-ink-900 px-3 py-1.5 text-sm font-medium text-white'
+                : 'rounded-md px-3 py-1.5 text-sm font-medium text-ink-600 hover:bg-ink-100'
             }
           >
             {tab.label}
@@ -77,7 +77,7 @@ export default function MyBookingsPage() {
       {isPending ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="h-28 animate-pulse rounded-lg bg-slate-200" />
+            <div key={index} className="h-28 animate-pulse rounded-lg bg-ink-200" />
           ))}
         </div>
       ) : data && data.items.length > 0 ? (
@@ -86,9 +86,9 @@ export default function MyBookingsPage() {
             <li key={booking.id}>
               <Link
                 to={`/account/bookings/${booking.id}`}
-                className="flex gap-4 rounded-lg border border-slate-200 bg-white p-4 transition hover:shadow-sm"
+                className="flex gap-4 rounded-lg border border-ink-200 bg-white p-4 transition hover:shadow-sm"
               >
-                <div className="h-20 w-28 shrink-0 overflow-hidden rounded bg-slate-100">
+                <div className="h-20 w-28 shrink-0 overflow-hidden rounded bg-ink-100">
                   {booking.vehicle.imageUrl && (
                     <img
                       src={`http://localhost:4000${booking.vehicle.imageUrl}`}
@@ -100,20 +100,20 @@ export default function MyBookingsPage() {
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-slate-900">{booking.vehicle.name}</p>
+                    <p className="font-semibold text-ink-900">{booking.vehicle.name}</p>
                     <BookingStatusBadge status={booking.status} label={booking.statusLabel} />
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">{booking.bookingNumber}</p>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-xs text-ink-500">{booking.bookingNumber}</p>
+                  <p className="mt-1 text-sm text-ink-600">
                     {formatDate(booking.period.pickupAt)} &rarr; {formatDate(booking.period.returnAt)}
                   </p>
                 </div>
 
                 <div className="shrink-0 text-right">
-                  <p className="font-semibold text-slate-900">
+                  <p className="font-semibold text-ink-900">
                     {booking.pricing.currency} {booking.pricing.totalAmount}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-ink-500">
                     {booking.period.rentalDays} day{booking.period.rentalDays === 1 ? '' : 's'}
                   </p>
                 </div>
@@ -122,9 +122,9 @@ export default function MyBookingsPage() {
           ))}
         </ul>
       ) : (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
-          <p className="font-medium text-slate-700">Nothing here yet</p>
-          <Link to="/cars" className="mt-3 inline-block text-sm text-slate-900 underline">
+        <div className="rounded-lg border border-dashed border-ink-300 bg-white p-10 text-center">
+          <p className="font-medium text-ink-700">Nothing here yet</p>
+          <Link to="/cars" className="mt-3 inline-block text-sm text-ink-900 underline">
             Browse cars
           </Link>
         </div>
@@ -136,18 +136,18 @@ export default function MyBookingsPage() {
             type="button"
             disabled={page <= 1}
             onClick={() => setParam('page', String(page - 1))}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-40"
+            className="rounded-md border border-ink-300 bg-white px-3 py-1.5 disabled:opacity-40"
           >
             Previous
           </button>
-          <span className="text-slate-600">
+          <span className="text-ink-600">
             Page {data.pagination.page} of {data.pagination.totalPages}
           </span>
           <button
             type="button"
             disabled={page >= data.pagination.totalPages}
             onClick={() => setParam('page', String(page + 1))}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-40"
+            className="rounded-md border border-ink-300 bg-white px-3 py-1.5 disabled:opacity-40"
           >
             Next
           </button>

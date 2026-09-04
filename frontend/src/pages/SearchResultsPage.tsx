@@ -57,9 +57,9 @@ export default function SearchResultsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Available cars</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Available cars</h1>
         {hasCriteria && (
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-600">
             {formatWhen(criteria.pickupDate, criteria.pickupTime)}
             {' \u2192 '}
             {formatWhen(criteria.returnDate, criteria.returnTime)}
@@ -67,12 +67,12 @@ export default function SearchResultsPage() {
         )}
       </div>
 
-      <SearchWidget compact initial={criteria} />
+      <SearchWidget framed initial={criteria} />
 
       {!hasCriteria && (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
-          <p className="font-medium text-slate-700">Choose your dates to see what is available</p>
-          <Link to="/cars" className="mt-3 inline-block text-sm text-slate-900 underline">
+        <div className="rounded-card border border-dashed border-ink-200 bg-white p-10 text-center">
+          <p className="font-medium text-ink-700">Choose your dates to see what is available</p>
+          <Link to="/cars" className="mt-3 inline-block text-sm text-ink-900 underline">
             Or browse the whole fleet
           </Link>
         </div>
@@ -87,15 +87,15 @@ export default function SearchResultsPage() {
       {hasCriteria && !isError && (
         <>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-600">
               {data ? `${data.pagination.total} available` : 'Searching...'}
             </p>
             <label className="flex items-center gap-2 text-sm">
-              <span className="text-slate-600">Sort</span>
+              <span className="text-ink-600">Sort</span>
               <select
                 value={searchParams.get('sort') ?? 'newest'}
                 onChange={(e) => setParam('sort', e.target.value)}
-                className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                className="rounded-md border border-ink-300 px-2 py-1.5 text-sm"
               >
                 <option value="newest">Featured first</option>
                 <option value="price_asc">Price: low to high</option>
@@ -105,13 +105,20 @@ export default function SearchResultsPage() {
           </div>
 
           {isPending ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div key={index} className="h-72 animate-pulse rounded-lg bg-slate-200" />
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="animate-pulse rounded-card border border-ink-100 bg-white">
+                  <div className="aspect-16/10 rounded-t-card bg-ink-100" />
+                  <div className="space-y-3 p-4">
+                    <div className="h-4 w-2/3 rounded bg-ink-100" />
+                    <div className="h-3 w-1/3 rounded bg-ink-100" />
+                    <div className="h-8 w-1/2 rounded bg-ink-100" />
+                  </div>
+                </div>
               ))}
             </div>
           ) : data && data.items.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {data.items.map((vehicle) => (
                 <VehicleCard
                   key={vehicle.id}
@@ -131,12 +138,12 @@ export default function SearchResultsPage() {
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
-              <p className="font-medium text-slate-700">No cars are free for those dates</p>
-              <p className="mt-1 text-sm text-slate-500">
+            <div className="rounded-card border border-dashed border-ink-200 bg-white p-10 text-center">
+              <p className="font-medium text-ink-700">No cars are free for those dates</p>
+              <p className="mt-1 text-sm text-ink-500">
                 Try shifting your dates, or browse the full fleet to see what else we run.
               </p>
-              <Link to="/cars" className="mt-4 inline-block text-sm font-medium text-slate-900 underline">
+              <Link to="/cars" className="mt-4 inline-block text-sm font-medium text-ink-900 underline">
                 Browse all cars
               </Link>
             </div>
@@ -148,18 +155,18 @@ export default function SearchResultsPage() {
                 type="button"
                 disabled={page <= 1}
                 onClick={() => setParam('page', String(page - 1))}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-40"
+                className="rounded-md border border-ink-300 bg-white px-3 py-1.5 disabled:opacity-40"
               >
                 Previous
               </button>
-              <span className="text-slate-600">
+              <span className="text-ink-600">
                 Page {data.pagination.page} of {data.pagination.totalPages}
               </span>
               <button
                 type="button"
                 disabled={page >= data.pagination.totalPages}
                 onClick={() => setParam('page', String(page + 1))}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-40"
+                className="rounded-md border border-ink-300 bg-white px-3 py-1.5 disabled:opacity-40"
               >
                 Next
               </button>

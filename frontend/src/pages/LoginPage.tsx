@@ -47,8 +47,8 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-bold text-slate-900">Sign in</h1>
-      <p className="mt-1 text-sm text-slate-600">Access your bookings and documents.</p>
+      <h1 className="text-2xl font-bold text-ink-900">Sign in</h1>
+      <p className="mt-1 text-sm text-ink-600">Access your bookings and documents.</p>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
         {serverError && (
@@ -75,15 +75,15 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+          className="w-full rounded-md bg-ink-900 px-4 py-2 text-sm font-medium text-white hover:bg-ink-800 disabled:opacity-50"
         >
           {isSubmitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
 
-      <p className="mt-4 text-sm text-slate-600">
+      <p className="mt-4 text-sm text-ink-600">
         No account?{' '}
-        <Link to="/register" className="font-medium text-slate-900 underline">
+        <Link to="/register" className="font-medium text-ink-900 underline">
           Create one
         </Link>
       </p>

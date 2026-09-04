@@ -126,6 +126,20 @@ None of these are hardcoded. They live in the `system_settings` table and are
 edited from the Admin Dashboard. This is why `SystemSetting` is the very first
 model in the schema.
 
+### Demonstration data is quarantined
+
+The same rule is why there are two seed scripts, not one.
+
+`prisma/seed.ts` is the production seed: the admin account and the settings
+rows, with every client-owned number left BLANK. `prisma/seedDemo.ts` holds the
+28-vehicle demonstration fleet, and every rate in it is a placeholder.
+
+Keeping them apart means an invented price cannot reach production by accident.
+`seed.ts` runs on deploy; `seed:demo` is a separate command that prints a
+banner, refuses to run when `NODE_ENV=production`, and tags every row it creates
+with a `DEMO-` registration prefix so `seed:demo:clear` can remove exactly what
+it added and nothing else.
+
 ## 7. Frontend structure (same in both apps)
 
 | Folder | Holds | Rule |
@@ -141,3 +155,16 @@ model in the schema.
 
 Server state (anything from the API) is owned by TanStack Query. UI state
 (is this modal open) uses `useState`. There is no manual `useEffect` fetching.
+
+### Styling
+
+Tailwind v4, with the palette defined once as `@theme` tokens in `index.css`:
+an `ink` neutral ramp and an `accent` highlight. Components use `bg-ink-900`,
+never a raw hex or an arbitrary value, so swapping in the client's real brand
+colours (BRD 51) is an edit to one file rather than a hunt through forty
+components. `--radius-card` and `--shadow-card` are tokens for the same reason.
+
+Vehicles with no photograph render `VehicleArtwork`, an SVG body-style
+silhouette tinted by category. The alternatives were a grey "No image" box,
+which makes a real fleet look broken, and stock photography, which would put a
+picture of a car that is not that car in front of a customer.

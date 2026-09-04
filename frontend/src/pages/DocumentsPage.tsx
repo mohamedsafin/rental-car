@@ -30,7 +30,7 @@ export default function DocumentsPage() {
   const [uploadingFor, setUploadingFor] = useState<DocumentType | null>(null);
   const [showGeneral, setShowGeneral] = useState(false);
 
-  if (isPending) return <div className="h-64 animate-pulse rounded-lg bg-slate-200" />;
+  if (isPending) return <div className="h-64 animate-pulse rounded-lg bg-ink-200" />;
   if (!profile) return null;
 
   const { verification } = profile;
@@ -38,11 +38,11 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to="/account" className="text-sm text-slate-500 hover:underline">
+        <Link to="/account" className="text-sm text-ink-500 hover:underline">
           &larr; My account
         </Link>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">My documents</h1>
-        <p className="mt-1 text-sm text-slate-600">
+        <h1 className="mt-1 text-2xl font-bold text-ink-900">My documents</h1>
+        <p className="mt-1 text-sm text-ink-600">
           We verify these before your first rental. They are stored privately.
         </p>
       </div>
@@ -58,9 +58,9 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="font-semibold text-slate-900">Are you a UAE resident?</h2>
-        <p className="mt-1 text-sm text-slate-600">This decides which documents we need from you.</p>
+      <section className="rounded-lg border border-ink-200 bg-white p-5">
+        <h2 className="font-semibold text-ink-900">Are you a UAE resident?</h2>
+        <p className="mt-1 text-sm text-ink-600">This decides which documents we need from you.</p>
         <div className="mt-3 flex gap-2">
           {(['UAE_RESIDENT', 'VISITOR'] as const).map((value) => (
             <button
@@ -69,8 +69,8 @@ export default function DocumentsPage() {
               onClick={() => updateProfile.mutate({ residencyStatus: value })}
               className={
                 verification.residencyStatus === value
-                  ? 'rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white'
-                  : 'rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50'
+                  ? 'rounded-md bg-ink-900 px-4 py-2 text-sm font-medium text-white'
+                  : 'rounded-md border border-ink-300 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50'
               }
             >
               {value === 'UAE_RESIDENT' ? 'UAE resident' : 'Visitor / tourist'}
@@ -80,9 +80,9 @@ export default function DocumentsPage() {
       </section>
 
       {verification.warnings.length > 0 && (
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+        <div className="rounded-md border border-ink-200 bg-ink-50 p-4">
           {verification.warnings.map((warning) => (
-            <p key={warning} className="text-sm text-slate-600">
+            <p key={warning} className="text-sm text-ink-600">
               {warning}
             </p>
           ))}
@@ -91,16 +91,16 @@ export default function DocumentsPage() {
 
       {verification.requirements.length > 0 && (
         <section>
-          <h2 className="font-semibold text-slate-900">Required documents</h2>
+          <h2 className="font-semibold text-ink-900">Required documents</h2>
           <ul className="mt-3 space-y-3">
             {verification.requirements.map((requirement) => (
-              <li key={requirement.type} className="rounded-lg border border-slate-200 bg-white p-4">
+              <li key={requirement.type} className="rounded-lg border border-ink-200 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-medium text-slate-900">
+                    <p className="font-medium text-ink-900">
                       {requirement.label}
                       {!requirement.required && (
-                        <span className="ml-2 text-xs font-normal text-slate-400">optional</span>
+                        <span className="ml-2 text-xs font-normal text-ink-400">optional</span>
                       )}
                     </p>
                     <span
@@ -123,7 +123,7 @@ export default function DocumentsPage() {
                       onClick={() =>
                         setUploadingFor(uploadingFor === requirement.type ? null : requirement.type)
                       }
-                      className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="shrink-0 rounded-md border border-ink-300 px-3 py-1.5 text-sm font-medium text-ink-700 hover:bg-ink-50"
                     >
                       {requirement.status === 'MISSING' ? 'Upload' : 'Re-upload'}
                     </button>
@@ -147,13 +147,13 @@ export default function DocumentsPage() {
 
       <section>
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">
+          <h2 className="font-semibold text-ink-900">
             Uploaded ({documentData?.documents.length ?? 0})
           </h2>
           <button
             type="button"
             onClick={() => setShowGeneral((s) => !s)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="rounded-md border border-ink-300 px-3 py-1.5 text-sm font-medium text-ink-700 hover:bg-ink-50"
           >
             {showGeneral ? 'Cancel' : 'Upload another'}
           </button>
@@ -169,14 +169,14 @@ export default function DocumentsPage() {
         )}
 
         {documentData && documentData.documents.length > 0 ? (
-          <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+          <ul className="mt-3 divide-y divide-ink-100 rounded-lg border border-ink-200 bg-white">
             {documentData.documents.map((document) => (
               <li key={document.id} className="flex items-center justify-between gap-3 p-4">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-900">
+                  <p className="truncate font-medium text-ink-900">
                     {DOCUMENT_LABELS[document.type]}
                   </p>
-                  <p className="truncate text-xs text-slate-500">
+                  <p className="truncate text-xs text-ink-500">
                     {document.fileName} - uploaded{' '}
                     {new Date(document.uploadedAt).toLocaleDateString()}
                     {document.expiryDate ? ` - expires ${document.expiryDate}` : ''}
@@ -191,7 +191,7 @@ export default function DocumentsPage() {
             ))}
           </ul>
         ) : (
-          <p className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+          <p className="mt-3 rounded-lg border border-dashed border-ink-300 bg-white p-8 text-center text-sm text-ink-500">
             You have not uploaded any documents yet.
           </p>
         )}

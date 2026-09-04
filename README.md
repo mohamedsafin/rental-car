@@ -81,6 +81,12 @@ npm run prisma:migrate --workspace backend
 #    There is no other way to make an admin: public registration always
 #    creates a CUSTOMER.
 npm run prisma:seed --workspace backend
+
+# 7. OPTIONAL - load a demonstration fleet (28 vehicles, 4 pickup points)
+#    so the site has something in it. Every rate in it is a PLACEHOLDER:
+#    the real ones come from the client (BRD 51), which is why this is a
+#    separate command and not part of the seed above.
+npm run seed:demo --workspace backend
 ```
 
 ## Running
@@ -108,6 +114,8 @@ npm run test:watch --workspace backend    # watch mode
 | --- | --- |
 | `npm run prisma:studio --workspace backend` | Browse the database in a GUI |
 | `npm run prisma:seed --workspace backend` | Create/reset the first admin account |
+| `npm run seed:demo --workspace backend` | Load the demonstration fleet (placeholder rates) |
+| `npm run seed:demo:clear --workspace backend` | Remove the demonstration fleet again |
 | `npm run prisma:migrate --workspace backend` | Create and apply a migration after editing the schema |
 | `npm run prisma:generate --workspace backend` | Regenerate the typed Prisma client |
 | `npm run typecheck --workspace backend` | Type-check without emitting |

@@ -1,18 +1,75 @@
 /* Tailwind CSS v4 - a single import replaces the old three @tailwind lines. */
 @import 'tailwindcss';
 
-/* Design tokens. Real brand colours come from the client's logo/brand guide
-   (BRD 51), so these are neutral placeholders we will replace, not invent. */
+/*
+ * Design tokens.
+ *
+ * Still placeholders, and deliberately so: the real palette comes from the
+ * client's logo and brand guide (BRD 51). What changed is that they are now a
+ * COMPLETE, coherent set rather than three unused blues - an ink primary, a
+ * warm accent, and a neutral ramp - so the site reads as designed instead of
+ * as unstyled default slate. Swapping in the client's brand later means
+ * editing these values, not hunting hex codes through forty components.
+ */
 @theme {
-  --color-brand-50: oklch(0.97 0.02 250);
-  --color-brand-100: oklch(0.93 0.04 250);
-  --color-brand-500: oklch(0.58 0.16 250);
-  --color-brand-600: oklch(0.51 0.16 250);
-  --color-brand-700: oklch(0.44 0.14 250);
+  /* Primary: deep ink blue. Used for surfaces, headers and primary actions. */
+  --color-ink-50: oklch(0.97 0.008 250);
+  --color-ink-100: oklch(0.93 0.015 250);
+  --color-ink-200: oklch(0.86 0.025 250);
+  --color-ink-300: oklch(0.74 0.035 250);
+  --color-ink-400: oklch(0.6 0.045 250);
+  --color-ink-500: oklch(0.48 0.05 252);
+  --color-ink-600: oklch(0.39 0.05 255);
+  --color-ink-700: oklch(0.31 0.045 258);
+  --color-ink-800: oklch(0.24 0.038 260);
+  --color-ink-900: oklch(0.18 0.03 262);
+  --color-ink-950: oklch(0.13 0.025 264);
+
+  /* Accent: warm amber. Prices, highlights, the one thing on screen that
+     should catch the eye. Used sparingly on purpose. */
+  --color-accent-50: oklch(0.97 0.03 85);
+  --color-accent-100: oklch(0.94 0.06 85);
+  --color-accent-200: oklch(0.89 0.1 84);
+  --color-accent-300: oklch(0.83 0.14 82);
+  --color-accent-400: oklch(0.78 0.16 78);
+  --color-accent-500: oklch(0.72 0.17 70);
+  --color-accent-600: oklch(0.63 0.16 60);
+  --color-accent-700: oklch(0.52 0.13 55);
+
+  --radius-card: 1rem;
+
+  /* A softer, more layered shadow than the default - cards should lift off
+     the page rather than sit on it with a hard edge. */
+  --shadow-card: 0 1px 2px oklch(0.18 0.03 262 / 0.04), 0 4px 16px oklch(0.18 0.03 262 / 0.06);
+  --shadow-card-hover: 0 2px 4px oklch(0.18 0.03 262 / 0.06), 0 12px 32px oklch(0.18 0.03 262 / 0.12);
 }
 
 html,
 body,
 #root {
   height: 100%;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Respect the OS setting. Somebody who has asked for less motion should not
+   get cards sliding around under them. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* A visible focus ring everywhere, not just where a component remembered one.
+   Keyboard users need to know where they are. */
+:focus-visible {
+  outline: 2px solid var(--color-accent-500);
+  outline-offset: 2px;
 }

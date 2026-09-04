@@ -12,9 +12,9 @@ import { useHealth } from '../hooks/useHealth';
 
 function Row({ label, value, ok }: { label: string; value: string; ok: boolean }) {
   return (
-    <div className="flex items-center justify-between border-b border-slate-100 pb-2 last:border-0">
-      <dt className="text-slate-600">{label}</dt>
-      <dd className="flex items-center gap-2 font-medium text-slate-900">
+    <div className="flex items-center justify-between border-b border-ink-100 pb-2 last:border-0">
+      <dt className="text-ink-600">{label}</dt>
+      <dd className="flex items-center gap-2 font-medium text-ink-900">
         <span
           aria-hidden="true"
           className={ok ? 'inline-block h-2 w-2 rounded-full bg-emerald-500' : 'inline-block h-2 w-2 rounded-full bg-red-500'}
@@ -30,8 +30,8 @@ export default function ConnectionStatus() {
 
   if (isPending) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-white p-5">
-        <p className="text-sm text-slate-500">Checking backend connection...</p>
+      <div className="rounded-lg border border-ink-200 bg-white p-5">
+        <p className="text-sm text-ink-500">Checking backend connection...</p>
       </div>
     );
   }
@@ -59,10 +59,10 @@ export default function ConnectionStatus() {
   const dbUp = data.dependencies.database === 'up';
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5">
+    <div className="rounded-lg border border-ink-200 bg-white p-5">
       <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-slate-900">System status</h2>
-        {isFetching && <span className="text-xs text-slate-400">refreshing...</span>}
+        <h2 className="font-semibold text-ink-900">System status</h2>
+        {isFetching && <span className="text-xs text-ink-400">refreshing...</span>}
       </div>
 
       <dl className="mt-4 space-y-2 text-sm">

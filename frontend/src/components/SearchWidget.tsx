@@ -22,6 +22,10 @@ function dateOffset(days: number): string {
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
+/** One class string, so every control in the form lines up and matches. */
+const inputClass =
+  'w-full rounded-lg border border-ink-200 px-3 py-2 text-sm text-ink-800 transition hover:border-ink-300';
+
 export interface SearchWidgetProps {
   /** Pre-fill from the URL when the widget is shown on the results page. */
   initial?: Partial<{
@@ -32,10 +36,15 @@ export interface SearchWidgetProps {
     pickupLocationId: string;
     dropoffLocationId: string;
   }>;
-  compact?: boolean;
+  /**
+   * When true the form draws its own card. The home page passes false because
+   * the hero already wraps it in one, and two nested bordered boxes look like
+   * a mistake rather than a design.
+   */
+  framed?: boolean;
 }
 
-export default function SearchWidget({ initial, compact = false }: SearchWidgetProps) {
+export default function SearchWidget({ initial, framed = false }: SearchWidgetProps) {
   const navigate = useNavigate();
   const { data: locationData } = useLocations();
 
@@ -78,18 +87,14 @@ export default function SearchWidget({ initial, compact = false }: SearchWidgetP
   return (
     <form
       onSubmit={submit}
-      className={
-        compact
-          ? 'rounded-lg border border-slate-200 bg-white p-4'
-          : 'rounded-lg border border-slate-200 bg-white p-6 shadow-sm'
-      }
+      className={framed ? 'rounded-card border border-ink-100 bg-white p-5 shadow-card' : ''}
     >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Field label="Pickup location">
           <select
             value={form.pickupLocationId}
             onChange={(e) => setForm({ ...form, pickupLocationId: e.target.value })}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className={inputClass}
           >
             <option value="">Any location</option>
             {pickupPoints.map((location) => (
@@ -104,7 +109,7 @@ export default function SearchWidget({ initial, compact = false }: SearchWidgetP
           <select
             value={form.dropoffLocationId}
             onChange={(e) => setForm({ ...form, dropoffLocationId: e.target.value })}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className={inputClass}
           >
             <option value="">Same as pickup</option>
             {dropoffPoints.map((location) => (
@@ -124,7 +129,7 @@ export default function SearchWidget({ initial, compact = false }: SearchWidgetP
             min={TODAY}
             value={form.pickupDate}
             onChange={(e) => setForm({ ...form, pickupDate: e.target.value })}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
         </Field>
 
@@ -134,7 +139,7 @@ export default function SearchWidget({ initial, compact = false }: SearchWidgetP
             required
             value={form.pickupTime}
             onChange={(e) => setForm({ ...form, pickupTime: e.target.value })}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
         </Field>
 
@@ -147,7 +152,7 @@ export default function SearchWidget({ initial, compact = false }: SearchWidgetP
             min={form.pickupDate}
             value={form.returnDate}
             onChange={(e) => setForm({ ...form, returnDate: e.target.value })}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
         </Field>
 
@@ -157,14 +162,14 @@ export default function SearchWidget({ initial, compact = false }: SearchWidgetP
             required
             value={form.returnTime}
             onChange={(e) => setForm({ ...form, returnTime: e.target.value })}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
         </Field>
 
         <div className="flex items-end">
           <button
             type="submit"
-            className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            className="w-full rounded-lg bg-ink-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-ink-800"
           >
             Search available cars
           </button>
@@ -178,7 +183,7 @@ export default function SearchWidget({ initial, compact = false }: SearchWidgetP
       )}
 
       {pickupPoints.length === 0 && (
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 text-xs text-ink-500">
           No pickup locations are set up yet - searching across the whole fleet.
         </p>
       )}
@@ -189,7 +194,7 @@ export default function SearchWidget({ initial, compact = false }: SearchWidgetP
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+      <span className="mb-1.5 block text-xs font-medium text-ink-500">{label}</span>
       {children}
     </label>
   );

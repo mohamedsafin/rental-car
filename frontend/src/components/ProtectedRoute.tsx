@@ -28,7 +28,7 @@ export default function ProtectedRoute({ allowedRoles, redirectTo = '/login' }: 
   if (isLoading) {
     return (
       <div className="flex min-h-64 items-center justify-center">
-        <p className="text-sm text-slate-500">Loading…</p>
+        <p className="text-sm text-ink-500">Loading…</p>
       </div>
     );
   }

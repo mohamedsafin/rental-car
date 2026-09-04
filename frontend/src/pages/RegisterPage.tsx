@@ -59,8 +59,8 @@ export default function RegisterPage() {
 
   return (
     <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-bold text-slate-900">Create your account</h1>
-      <p className="mt-1 text-sm text-slate-600">Book vehicles and manage your rentals.</p>
+      <h1 className="text-2xl font-bold text-ink-900">Create your account</h1>
+      <p className="mt-1 text-sm text-ink-600">Book vehicles and manage your rentals.</p>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
         {serverError && (
@@ -116,15 +116,15 @@ export default function RegisterPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+          className="w-full rounded-md bg-ink-900 px-4 py-2 text-sm font-medium text-white hover:bg-ink-800 disabled:opacity-50"
         >
           {isSubmitting ? 'Creating account…' : 'Create account'}
         </button>
       </form>
 
-      <p className="mt-4 text-sm text-slate-600">
+      <p className="mt-4 text-sm text-ink-600">
         Already registered?{' '}
-        <Link to="/login" className="font-medium text-slate-900 underline">
+        <Link to="/login" className="font-medium text-ink-900 underline">
           Sign in
         </Link>
       </p>
