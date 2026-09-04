@@ -23,6 +23,7 @@ import { prisma } from '../../config/prisma';
 import { ApiError, ErrorCode } from '../../utils/ApiError';
 import { SettingKey, settingsService } from '../settings/service';
 import {
+  BLOCKING_MAINTENANCE_STATUSES,
   BLOCKING_STATUSES,
   UNBOOKABLE_VEHICLE_STATUSES,
   type AvailabilityResult,
@@ -64,6 +65,22 @@ export async function assertValidPeriod(period: RentalPeriod): Promise<void> {
   if (durationHours > maxDays * 24) {
     throw ApiError.badRequest(`The maximum rental period is ${maxDays} day(s)`);
   }
+}
+
+/**
+ * Build the Prisma filter matching MAINTENANCE that blocks a given window.
+ *
+ * Same half-open overlap rule as bookings, and for the same reason: a service
+ * finishing at 10:00 leaves the car free from 10:00. A vehicle booked in for
+ * work on the 20th is perfectly bookable on the 10th - which is exactly why
+ * maintenance is a date range rather than a status flag on the vehicle.
+ */
+export function blockingMaintenanceWhere(period: RentalPeriod): Prisma.MaintenanceRecordWhereInput {
+  return {
+    status: { in: [...BLOCKING_MAINTENANCE_STATUSES] },
+    startsAt: { lt: period.returnAt },
+    endsAt: { gt: period.pickupAt },
+  };
 }
 
 /**
@@ -135,6 +152,23 @@ export const availabilityService = {
     }
 
     const bufferHours = await settingsService.getNumberOr(SettingKey.TURNAROUND_BUFFER_HOURS, 0);
+
+    // Maintenance first: a car in the workshop is unavailable regardless of
+    // what its booking calendar says, and the message should say so plainly
+    // rather than "already booked".
+    const maintenance = await prisma.maintenanceRecord.findFirst({
+      where: { vehicleId, ...blockingMaintenanceWhere(period) },
+      select: { startsAt: true, endsAt: true, description: true },
+    });
+
+    if (maintenance) {
+      return {
+        available: false,
+        reason: `This vehicle is booked in for maintenance between ${maintenance.startsAt
+          .toISOString()
+          .slice(0, 10)} and ${maintenance.endsAt.toISOString().slice(0, 10)}`,
+      };
+    }
 
     const conflicts = await prisma.booking.findMany({
       where: {

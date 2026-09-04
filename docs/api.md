@@ -531,9 +531,111 @@ mileage allowance all use the new date.
 
 ---
 
+## Phase 9 endpoints
+
+Everything below is back-office only. A customer never sees a damage record or
+a fine row; they see the **outcome** as an additional charge on their booking
+and, if it is settled, a line in their deposit ledger.
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/damages` | STAFF | Damage queue (BRD 30) |
+| POST | `/damages` | STAFF | Record damage found at inspection |
+| POST | `/damages/:id/photos` | STAFF | Evidence photos |
+| PATCH | `/damages/:id/assess` | ADMIN | Approve at an amount, or dismiss |
+| POST | `/damages/:id/charge` | ADMIN | Raise the approved amount on the booking |
+| GET | `/fleet/fines` | STAFF | Traffic fines (BRD 38) |
+| POST | `/fleet/fines` | STAFF | Record a fine; suggests the rental it fell on |
+| PATCH | `/fleet/fines/:id` | STAFF | Attach to a booking, dispute, write off |
+| POST | `/fleet/fines/:id/recover` | ADMIN | Pass the fine on to the renter |
+| GET | `/fleet/tolls` | STAFF | Salik crossings |
+| POST | `/fleet/tolls` | STAFF | Record a crossing |
+| PATCH | `/fleet/tolls/:id` | STAFF | Attach, dispute, write off |
+| POST | `/fleet/tolls/:id/recover` | ADMIN | Pass the toll on |
+| GET | `/fleet/maintenance` | STAFF | Workshop schedule (BRD 39) |
+| POST | `/fleet/maintenance` | STAFF | Book a window; **409** if a booking clashes |
+| PATCH | `/fleet/maintenance/:id/status` | STAFF | Start, complete or cancel |
+| GET | `/fleet/vehicles/:vehicleId/insurance` | STAFF | Policy history (BRD 40) |
+| POST | `/fleet/insurance` | STAFF | Add a policy; supersedes the current one |
+| GET | `/fleet/vehicles/:vehicleId/documents` | STAFF | Vehicle paperwork |
+| POST | `/fleet/vehicles/:vehicleId/documents` | STAFF | Upload to **private** storage |
+| GET | `/fleet/documents/:id/file` | STAFF | Stream the bytes; every read audited |
+| DELETE | `/fleet/documents/:id` | ADMIN | Remove a document |
+| GET | `/fleet/expiring` | STAFF | Expiry dashboard (BRD 41) |
+
+## Maintenance is a date range, not a flag
+
+BRD 39 says a vehicle can be marked unavailable while under maintenance. A
+**status flag** can only say "off the road", indefinitely and invisibly — book
+a car in for a service in March and it silently drops out of every search from
+today. A **date range** says exactly what is true:
+
+```
+maintenance 10-13 Mar
+  booking 01-05 Mar   -> allowed
+  booking 11-12 Mar    -> rejected, "in the workshop"
+  booking 20-25 Mar    -> allowed
+```
+
+The availability engine reads `MaintenanceRecord` alongside bookings in
+`checkVehicle`, `search` and `getBlockedDates`. Only `SCHEDULED` and
+`IN_PROGRESS` records block; marking a job `COMPLETED` pulls `endsAt` back to
+now, so a service that finished early puts the car back on the road
+immediately rather than on the date someone typed in last week.
+
+Scheduling **refuses with 409** when a live booking overlaps the window, and
+the message names the clashing booking and its dates. Taking a car away from a
+customer who has already paid is a decision a person makes — by cancelling or
+moving that booking — not something a scheduling form does quietly.
+
+## Damage: three steps, three decisions
+
+```
+report (STAFF)  ->  assess (ADMIN)  ->  charge (ADMIN)
+  estimate            approved amount     AdditionalCharge on the booking
+```
+
+The **approved** amount is what reaches the customer, never the estimate.
+Negotiating a bodyshop quote down is normal, and the estimate stays on file as
+evidence of what was first thought. Charging creates an `AdditionalCharge`
+rather than touching the deposit directly, so damage joins the same
+settle/waive flow as every other post-return charge — one place staff look,
+one place the customer sees.
+
+## Fines and tolls: suggested, never assigned
+
+Recording a fine looks up which rental covered the violation timestamp and
+returns it as `matchedCustomer` — a **suggestion**. Nothing is attributed
+until a human attaches the fine to a booking. A fine is money taken from a
+named person; inferring who was driving from a timestamp lookup and acting on
+it unattended is how the wrong customer gets billed.
+
+`fineNumber` is UNIQUE. Entering the same fine twice is refused at the
+database, because one violation must not become two charges.
+
+Recovery combines the authority's amount and the company's handling fee into
+one charge, but **describes them separately**, so the customer can see what the
+RTA charged and what we charged.
+
+## Expiry reminders are configured, not invented
+
+BRD 41 gives 30/15/7/0 days as the client's example. That is stored in
+`fleet.expiry_reminder_days` and seeded with those values — unlike a price, a
+missing reminder schedule has a safe answer, and warning too early is
+recoverable where inventing a fee is not. If the schedule is unset the service
+logs a warning and falls back to the BRD example rather than going silent.
+
+`GET /fleet/expiring` always returns already-expired items, whatever the
+window. A policy that lapsed 90 days ago is the most urgent row on the page,
+not one that falls outside a 30-day filter.
+
+Vehicle documents go to **private** storage for the same reason customer
+documents do: a Mulkiya carries the chassis number and the owner's details.
+There is no URL — only `GET /fleet/documents/:id/file`, which authenticates,
+audits, then streams.
+
 ## Planned endpoints
 
 | Phase | Prefix |
 | --- | --- |
-| 9 | `/damages`, `/fines`, `/tolls`, `/maintenance`, `/insurance` |
 | 10 | `/coupons`, `/invoices`, `/notifications`, `/reports` |

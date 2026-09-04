@@ -145,6 +145,12 @@ model User {
   inspectionsCarriedOut VehicleInspection[]    @relation("InspectionStaff")
   extensionsReviewed    BookingExtension[]     @relation("ExtensionReviewer")
   chargesCreated        AdditionalCharge[]     @relation("ChargeCreator")
+  damagesReported       Damage[]               @relation("DamageReporter")
+  damagesApproved       Damage[]               @relation("DamageApprover")
+  finesRecorded         TrafficFine[]          @relation("FineRecorder")
+  tollsRecorded         TollCharge[]           @relation("TollRecorder")
+  maintenanceCreated    MaintenanceRecord[]    @relation("MaintenanceCreator")
+  vehicleDocsUploaded   VehicleDocument[]      @relation("VehicleDocumentUploader")
 
   @@index([role])
   @@index([status])
@@ -382,10 +388,16 @@ model Vehicle {
   /// Soft delete: a vehicle with rental history must never be hard-deleted.
   deletedAt DateTime?
 
-  images       VehicleImage[]
-  features     VehicleFeatureOnVehicle[]
-  bookings     Booking[]
-  pricingRules PricingRule[]
+  images             VehicleImage[]
+  features           VehicleFeatureOnVehicle[]
+  bookings           Booking[]
+  pricingRules       PricingRule[]
+  damages            Damage[]
+  trafficFines       TrafficFine[]
+  tollCharges        TollCharge[]
+  maintenanceRecords MaintenanceRecord[]
+  insuranceRecords   InsuranceRecord[]
+  documents          VehicleDocument[]
 
   // Indexes chosen for the queries the customer site actually runs: browse by
   // category, filter by status, and (Phase 4) the availability lookup.
@@ -584,6 +596,9 @@ model Booking {
   rental            Rental?
   bookingExtensions BookingExtension[]
   additionalCharges AdditionalCharge[]
+  damages           Damage[]
+  trafficFines      TrafficFine[]
+  tollCharges       TollCharge[]
 
   @@index([vehicleId, pickupAt, returnAt])
   @@index([customerId])
@@ -1291,4 +1306,331 @@ model AdditionalCharge {
   @@index([bookingId])
   @@index([status])
   @@map("additional_charges")
+}
+
+// ===========================================================================
+// PHASE 9 - Damages, fines, tolls, maintenance and insurance
+// ===========================================================================
+
+enum DamageType {
+  SCRATCH
+  DENT
+  BROKEN_PART
+  INTERIOR
+  TYRE
+  GLASS
+  MECHANICAL
+  OTHER
+}
+
+/// Damage moves through assessment before anyone is charged (BRD 27).
+enum DamageStatus {
+  /// Recorded at return, not yet costed.
+  REPORTED
+  /// An estimate exists, awaiting an admin decision.
+  ASSESSED
+  /// Approved at a definite amount; a charge can be raised.
+  APPROVED
+  /// Judged fair wear and tear, or the customer's account accepted.
+  DISMISSED
+  /// The approved amount has been charged.
+  CHARGED
+}
+
+/// Fines and tolls share a lifecycle but NOT a table - see the models below.
+enum ChargeRecoveryStatus {
+  /// Received from the authority, not yet passed on.
+  RECORDED
+  /// Attributed to a specific rental and customer.
+  ASSIGNED
+  /// Recovered from the deposit or invoiced.
+  RECOVERED
+  /// Written off.
+  WAIVED
+  /// The customer disputes it.
+  DISPUTED
+}
+
+enum MaintenanceType {
+  ROUTINE_SERVICE
+  REPAIR
+  TYRE_CHANGE
+  BODYWORK
+  INSPECTION
+  OTHER
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+/// Vehicle paperwork with expiry dates (BRD 41).
+enum VehicleDocumentType {
+  REGISTRATION
+  INSURANCE
+  REGISTRATION_RENEWAL
+  INSURANCE_RENEWAL
+  MAINTENANCE_RECORD
+  INSPECTION_REPORT
+  OTHER
+}
+
+/// Damage found on a vehicle (BRD 27).
+///
+/// Deliberately NOT folded into AdditionalCharge. A charge is a settled amount;
+/// damage is an assessment that starts as "there is a scratch", becomes an
+/// estimate, may be argued about, and only then becomes money. Collapsing the
+/// two would lose the middle - which is exactly the part that gets disputed.
+model Damage {
+  id        String  @id @default(uuid()) @db.Uuid
+  vehicleId String  @db.Uuid
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+
+  /// The rental it was found on. Null for damage discovered off-hire.
+  bookingId String?  @db.Uuid
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  type        DamageType
+  status      DamageStatus @default(REPORTED)
+  description String
+  /// Where on the car, e.g. "Rear bumper, driver side".
+  location    String?
+
+  /// What we think it will cost, entered at assessment.
+  estimatedAmount Decimal? @db.Decimal(10, 2)
+  /// What the admin actually approved. Charging uses THIS, never the estimate.
+  approvedAmount  Decimal? @db.Decimal(10, 2)
+  currency        String   @default("AED")
+
+  /// Why it was dismissed, or why the approved amount differs from the
+  /// estimate. The customer may well ask.
+  assessmentNotes String?
+
+  reportedById String?   @db.Uuid
+  reportedBy   User?     @relation("DamageReporter", fields: [reportedById], references: [id], onDelete: SetNull)
+  approvedById String?   @db.Uuid
+  approvedBy   User?     @relation("DamageApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  photos DamagePhoto[]
+
+  @@index([vehicleId])
+  @@index([bookingId])
+  @@index([status])
+  @@map("damages")
+}
+
+model DamagePhoto {
+  id       String @id @default(uuid()) @db.Uuid
+  damageId String @db.Uuid
+  damage   Damage @relation(fields: [damageId], references: [id], onDelete: Cascade)
+
+  storageKey String
+  caption    String?
+  sizeBytes  Int?
+  mimeType   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([damageId])
+  @@map("damage_photos")
+}
+
+/// A traffic fine (BRD 28).
+///
+/// Fines and tolls get SEPARATE tables even though their lifecycles rhyme.
+/// A fine has an authority-issued number, a violation, a contest window and a
+/// driver who may deny it; a toll is an automatic gate reading. They are
+/// disputed differently, reported differently, and one table with a `type`
+/// column would end up half-empty in both directions.
+model TrafficFine {
+  id        String  @id @default(uuid()) @db.Uuid
+  vehicleId String  @db.Uuid
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+
+  /// The rental it fell in, once matched by date. Null until assigned.
+  bookingId String?  @db.Uuid
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  /// The authority's own reference. Unique: the same fine must not be entered
+  /// twice and charged twice.
+  fineNumber  String   @unique
+  /// When the offence happened - this is what matches it to a rental.
+  violationAt DateTime @db.Timestamptz(3)
+  violation   String?
+  location    String?
+
+  amount     Decimal @db.Decimal(10, 2)
+  /// The company's own handling fee, kept separate from the authority's
+  /// amount so an invoice can show both honestly (BRD 28).
+  serviceFee Decimal @default(0) @db.Decimal(10, 2)
+  currency   String  @default("AED")
+
+  status ChargeRecoveryStatus @default(RECORDED)
+  notes  String?
+
+  recordedById String? @db.Uuid
+  recordedBy   User?   @relation("FineRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vehicleId])
+  @@index([bookingId])
+  @@index([status])
+  @@index([violationAt])
+  @@map("traffic_fines")
+}
+
+/// A toll / Salik crossing (BRD 29).
+model TollCharge {
+  id        String  @id @default(uuid()) @db.Uuid
+  vehicleId String  @db.Uuid
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+
+  bookingId String?  @db.Uuid
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  /// When the gate was crossed - matches the charge to a rental.
+  crossedAt DateTime @db.Timestamptz(3)
+  /// Gate name, e.g. "Al Barsha".
+  gate      String?
+  /// The operator's transaction reference, where one exists.
+  reference String?
+
+  amount     Decimal @db.Decimal(10, 2)
+  serviceFee Decimal @default(0) @db.Decimal(10, 2)
+  currency   String  @default("AED")
+
+  status ChargeRecoveryStatus @default(RECORDED)
+  notes  String?
+
+  recordedById String? @db.Uuid
+  recordedBy   User?   @relation("TollRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vehicleId])
+  @@index([bookingId])
+  @@index([status])
+  @@index([crossedAt])
+  @@map("toll_charges")
+}
+
+/// A service or repair (BRD 39).
+///
+/// The DATE RANGE is the important part. BRD 39 says a vehicle "can
+/// automatically be marked unavailable while under maintenance", and a date
+/// range says that far better than a status flag: a car booked in for a
+/// service on the 20th is available on the 10th, and the availability engine
+/// can see that. A flag can only say "off the road", indefinitely.
+model MaintenanceRecord {
+  id        String  @id @default(uuid()) @db.Uuid
+  vehicleId String  @db.Uuid
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  type   MaintenanceType
+  status MaintenanceStatus @default(SCHEDULED)
+
+  /// The window the vehicle is off the road. Blocks availability.
+  startsAt DateTime @db.Timestamptz(3)
+  endsAt   DateTime @db.Timestamptz(3)
+
+  description String
+  /// Where the work is being done.
+  provider    String?
+  /// Odometer at the time of service.
+  mileage     Int?
+  cost        Decimal? @db.Decimal(10, 2)
+  currency    String   @default("AED")
+
+  /// Next service due, by date and/or odometer (BRD 39).
+  nextServiceAt      DateTime?
+  nextServiceMileage Int?
+
+  notes String?
+
+  createdById String? @db.Uuid
+  createdBy   User?   @relation("MaintenanceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The index the availability engine uses to find overlapping windows.
+  @@index([vehicleId, startsAt, endsAt])
+  @@index([status])
+  @@map("maintenance_records")
+}
+
+/// An insurance policy on a vehicle (BRD 40).
+model InsuranceRecord {
+  id        String  @id @default(uuid()) @db.Uuid
+  vehicleId String  @db.Uuid
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  provider     String
+  policyNumber String
+  /// Comprehensive, third-party, and so on. Free text: the client has not
+  /// confirmed a list.
+  coverType    String?
+
+  startDate  DateTime @db.Date
+  expiryDate DateTime @db.Date
+
+  premium  Decimal? @db.Decimal(10, 2)
+  currency String   @default("AED")
+
+  /// Set when a newer policy supersedes this one, so the history survives.
+  isActive Boolean @default(true)
+  notes    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Expiry reminders scan this (BRD 41).
+  @@index([vehicleId, isActive])
+  @@index([expiryDate])
+  @@map("insurance_records")
+}
+
+/// Paperwork attached to a vehicle (BRD 41).
+///
+/// PRIVATE storage, like customer documents. A registration card carries the
+/// owner's details and a chassis number; it is not marketing material.
+model VehicleDocument {
+  id        String  @id @default(uuid()) @db.Uuid
+  vehicleId String  @db.Uuid
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  type VehicleDocumentType
+
+  /// Private storage key. NOT a URL - reached only through an authorised route.
+  storageKey String
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+
+  documentNumber String?
+  issueDate      DateTime? @db.Date
+  /// Drives the expiry reminders. Null for documents that do not expire.
+  expiryDate     DateTime? @db.Date
+
+  notes String?
+
+  uploadedById String? @db.Uuid
+  uploadedBy   User?   @relation("VehicleDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vehicleId])
+  @@index([expiryDate])
+  @@map("vehicle_documents")
 }

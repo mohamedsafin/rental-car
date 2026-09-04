@@ -23,6 +23,10 @@ import CustomersPage from '../pages/CustomersPage';
 import BookingsPage from '../pages/BookingsPage';
 import AdminBookingDetailPage from '../pages/BookingDetailPage';
 import CustomerDetailPage from '../pages/CustomerDetailPage';
+import MaintenancePage from '../pages/MaintenancePage';
+import DamagesPage from '../pages/DamagesPage';
+import FinesPage from '../pages/FinesPage';
+import ExpiryPage from '../pages/ExpiryPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 export default function AppRoutes() {
@@ -43,8 +47,11 @@ export default function AppRoutes() {
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/customers/:id" element={<CustomerDetailPage />} />
           <Route path="/users" element={<UsersPage />} />
-          {/* Phase 5+: /customers, /documents. Phase 6+: /bookings.
-              Phase 7+: /payments. Phase 10+: /reports, /settings */}
+          <Route path="/maintenance" element={<MaintenancePage />} />
+          <Route path="/insurance" element={<ExpiryPage />} />
+          <Route path="/damages" element={<DamagesPage />} />
+          <Route path="/fines" element={<FinesPage />} />
+          {/* Phase 10+: /reports, /settings, /invoices */}
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>

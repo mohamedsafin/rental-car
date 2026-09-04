@@ -108,4 +108,6 @@ export const SettingKey = {
   BOOKING_HOLD_MINUTES: 'rental.booking_hold_minutes',
   CANCELLATION_FREE_WINDOW_HOURS: 'cancellation.free_window_hours',
   CANCELLATION_FEE_PERCENTAGE: 'cancellation.fee_percentage',
+  /// JSON array of day offsets, e.g. [30, 15, 7, 0] (BRD 41).
+  EXPIRY_REMINDER_DAYS: 'fleet.expiry_reminder_days',
 } as const;

@@ -86,6 +86,11 @@ async function main(): Promise<void> {
     { key: 'documents.required_uae_resident', value: '[]', valueType: 'JSON', category: 'DOCUMENTS', label: 'Required documents - UAE resident', description: 'JSON array of DocumentType values. Empty = nothing required yet.' },
     { key: 'documents.required_visitor', value: '[]', valueType: 'JSON', category: 'DOCUMENTS', label: 'Required documents - visitor', description: 'JSON array of DocumentType values. Empty = nothing required yet.' },
 
+    // A reminder schedule, not a price. BRD 41 gives 30/15/7/0 as the
+    // client's own example, and warning too early is harmless where inventing
+    // a fee would not be - so this one is seeded with a working value.
+    { key: 'fleet.expiry_reminder_days', value: '[30,15,7,0]', valueType: 'JSON', category: 'SYSTEM', label: 'Expiry reminder days', description: 'JSON array of day offsets before expiry to alert on (BRD 41).' },
+
     { key: 'rental.minimum_rental_hours', value: '1', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Minimum rental duration (hours)', description: 'Structural floor. Confirm the commercial minimum with the client.' },
     { key: 'rental.maximum_rental_days', value: '365', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Maximum rental duration (days)' },
     { key: 'rental.booking_hold_minutes', value: '30', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Unpaid booking hold (minutes)', description: 'How long an unpaid booking holds a vehicle before the hold lapses.' },

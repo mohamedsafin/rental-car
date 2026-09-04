@@ -110,7 +110,7 @@ answer.
 | `vehicle_inspections` / `inspection_photos` | Before/after photo sets. |
 | `booking_extensions` | Extension requests, availability check result, extra charge. |
 
-### Phase 9 — charges after return
+### Phase 9 — charges after return, and fleet admin (done)
 | Table | Purpose |
 | --- | --- |
 | `damages` | Description, type, estimated vs approved amount, photos, approver. |
@@ -123,6 +123,18 @@ answer.
 Damages, fines and tolls are **separate tables**, not one "charges" table with a
 type column. They have genuinely different fields, different approval paths and
 different disputes.
+
+`maintenance_records` stores `startsAt`/`endsAt` as `timestamptz`, not a flag on
+the vehicle. The availability engine reads it exactly as it reads bookings, so a
+service booked for March takes March off the calendar and nothing else. Only
+`SCHEDULED` and `IN_PROGRESS` rows block.
+
+`traffic_fines.fineNumber` is UNIQUE — the database, not a form, is what stops
+one violation becoming two charges.
+
+`vehicle_documents.storageKey` is a private storage key, never a URL, for the
+same reason `customer_documents` is: a registration card carries the chassis
+number and the owner's details.
 
 ### Phase 10 — output
 | Table | Purpose |

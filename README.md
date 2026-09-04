@@ -9,7 +9,7 @@ document requirements — are **configurable settings, not hardcoded numbers**.
 
 ## Status
 
-**Phase 8 complete — Rental lifecycle.** See
+**Phase 9 complete — Charges & fleet administration.** See
 [docs/development-plan.md](docs/development-plan.md) for the roadmap.
 
 Done so far: monorepo foundation and health checks; JWT auth with
@@ -24,7 +24,13 @@ status lifecycle, and cancellation against a configurable policy; and
 payments — webhook-only confirmation with signature and amount verification,
 refunds, and an append-only security-deposit ledger; and the rental
 lifecycle — handover, photographic inspections at both ends, extensions with
-an availability re-check, and return charges that feed the deposit ledger.
+an availability re-check, and return charges that feed the deposit ledger; and
+fleet administration — damage assessment (estimate and approved amount kept
+apart, and only the approved one ever charged), traffic fines and Salik tolls
+recorded against the rental they fell on, maintenance windows that take a
+vehicle off the calendar **for those dates only**, insurance policy history,
+privately stored vehicle documents, and a configurable expiry-reminder
+dashboard.
 
 ## Stack
 

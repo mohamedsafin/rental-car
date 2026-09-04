@@ -104,6 +104,14 @@ export interface AvailabilityResult {
 }
 
 /**
+ * Maintenance statuses that take a vehicle off the road for their window.
+ *
+ * CANCELLED and COMPLETED do not: a service that was called off, or one that
+ * finished early, must not keep blocking the calendar.
+ */
+export const BLOCKING_MAINTENANCE_STATUSES = ['SCHEDULED', 'IN_PROGRESS'] as const;
+
+/**
  * Do two periods overlap? Pure function, no I/O - which is what makes the
  * rule exhaustively unit-testable without a database.
  */

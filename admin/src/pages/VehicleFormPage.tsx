@@ -14,6 +14,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import FormField from '../components/FormField';
 import VehicleImageManager from '../components/VehicleImageManager';
+import VehicleDocuments from '../components/VehicleDocuments';
 import {
   useAdminCategories,
   useAdminLocations,
@@ -375,6 +376,7 @@ export default function VehicleFormPage() {
 
       {/* Images need a saved vehicle to attach to. */}
       {!isNew && vehicleData && <VehicleImageManager vehicle={vehicleData.vehicle} />}
+      {!isNew && vehicleData && <VehicleDocuments vehicleId={vehicleData.vehicle.id} />}
       {isNew && (
         <p className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
           Save the vehicle first, then you can upload its images.

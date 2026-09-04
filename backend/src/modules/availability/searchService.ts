@@ -15,8 +15,13 @@ import { prisma } from '../../config/prisma';
 import { SettingKey, settingsService } from '../settings/service';
 import { vehiclesRepository } from '../vehicles/repository';
 import { toPublicVehicle, type PublicVehicle } from '../vehicles/types';
-import { assertValidPeriod, blockingBookingsWhere } from './service';
-import { BLOCKING_STATUSES, UNBOOKABLE_VEHICLE_STATUSES, type RentalPeriod } from './types';
+import { assertValidPeriod, blockingBookingsWhere, blockingMaintenanceWhere } from './service';
+import {
+  BLOCKING_MAINTENANCE_STATUSES,
+  BLOCKING_STATUSES,
+  UNBOOKABLE_VEHICLE_STATUSES,
+  type RentalPeriod,
+} from './types';
 import type { ListVehiclesQuery } from '../vehicles/validation';
 
 export interface SearchParams extends RentalPeriod {
@@ -48,13 +53,29 @@ export const searchService = {
 
     const bufferHours = await settingsService.getNumberOr(SettingKey.TURNAROUND_BUFFER_HOURS, 0);
 
-    // Query 1: every vehicle blocked during the window.
-    const blocked = await prisma.booking.findMany({
-      where: blockingBookingsWhere(params, bufferHours),
-      select: { vehicleId: true },
-      distinct: ['vehicleId'],
-    });
-    const blockedIds = blocked.map((row) => row.vehicleId);
+    // Query 1: every vehicle blocked during the window, whether by an
+    // existing booking or by scheduled maintenance. Both are gathered in one
+    // pass so the search stays a fixed number of queries regardless of fleet
+    // size - the whole reason this is inverted rather than checked per car.
+    const [blockedByBooking, blockedByMaintenance] = await Promise.all([
+      prisma.booking.findMany({
+        where: blockingBookingsWhere(params, bufferHours),
+        select: { vehicleId: true },
+        distinct: ['vehicleId'],
+      }),
+      prisma.maintenanceRecord.findMany({
+        where: blockingMaintenanceWhere(params),
+        select: { vehicleId: true },
+        distinct: ['vehicleId'],
+      }),
+    ]);
+
+    const blockedIds = [
+      ...new Set([
+        ...blockedByBooking.map((row) => row.vehicleId),
+        ...blockedByMaintenance.map((row) => row.vehicleId),
+      ]),
+    ];
 
     // Query 2: the listing, minus the blocked set and minus cars whose own
     // status rules them out.
@@ -91,22 +112,40 @@ export const searchService = {
     const from = new Date();
     const to = new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
 
-    const bookings = await prisma.booking.findMany({
-      where: {
-        vehicleId,
-        pickupAt: { lt: to },
-        returnAt: { gt: from },
-        OR: [
-          { status: { in: BLOCKING_STATUSES } },
-          { status: 'PENDING', holdExpiresAt: { gt: new Date() } },
-        ],
-      },
-      select: { pickupAt: true, returnAt: true },
-    });
+    const [bookings, maintenance] = await Promise.all([
+      prisma.booking.findMany({
+        where: {
+          vehicleId,
+          pickupAt: { lt: to },
+          returnAt: { gt: from },
+          OR: [
+            { status: { in: BLOCKING_STATUSES } },
+            { status: 'PENDING', holdExpiresAt: { gt: new Date() } },
+          ],
+        },
+        select: { pickupAt: true, returnAt: true },
+      }),
+      // Maintenance greys out days too - a customer picking a date the car is
+      // in the workshop should be told before they get to checkout.
+      prisma.maintenanceRecord.findMany({
+        where: {
+          vehicleId,
+          status: { in: [...BLOCKING_MAINTENANCE_STATUSES] },
+          startsAt: { lt: to },
+          endsAt: { gt: from },
+        },
+        select: { startsAt: true, endsAt: true },
+      }),
+    ]);
 
     const blocked = new Set<string>();
 
-    for (const booking of bookings) {
+    const periods = [
+      ...bookings.map((b) => ({ pickupAt: b.pickupAt, returnAt: b.returnAt })),
+      ...maintenance.map((m) => ({ pickupAt: m.startsAt, returnAt: m.endsAt })),
+    ];
+
+    for (const booking of periods) {
       // Walk each calendar day the booking touches. The return DAY is included
       // even though the return instant is not - a car coming back at 18:00 is
       // not realistically available from 09:00 that morning, and the calendar

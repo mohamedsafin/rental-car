@@ -25,6 +25,8 @@ import { depositRoutes } from '../modules/deposits/routes';
 import { rentalRoutes } from '../modules/rentals/routes';
 import { pricingRoutes } from '../modules/pricing/routes';
 import { pricingAdminRoutes } from '../modules/pricing/adminRoutes';
+import { damageRoutes } from '../modules/damages/routes';
+import { fleetRoutes } from '../modules/fleet/routes';
 
 const router = Router();
 
@@ -50,12 +52,13 @@ router.use('/pricing', pricingRoutes);
 // /pricing routes stay unambiguously public.
 router.use('/admin/pricing', pricingAdminRoutes);
 
+// Damage assessment, and fleet operations - fines, tolls, maintenance,
+// insurance, vehicle documents and expiry tracking. Both are back-office
+// only; the customer sees the results through their booking and deposit.
+router.use('/damages', damageRoutes);
+router.use('/fleet', fleetRoutes);
+
 // --- Mounted in later phases -------------------------------------------
-// router.use('/damages', damageRoutes);         // Phase 9
-// router.use('/fines', fineRoutes);             // Phase 9
-// router.use('/tolls', tollRoutes);             // Phase 9
-// router.use('/maintenance', maintenanceRoutes);// Phase 9
-// router.use('/insurance', insuranceRoutes);    // Phase 9
 // router.use('/coupons', couponRoutes);         // Phase 10
 // router.use('/invoices', invoiceRoutes);       // Phase 10
 // router.use('/notifications', notificationRoutes); // Phase 10

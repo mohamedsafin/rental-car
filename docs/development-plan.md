@@ -13,7 +13,7 @@ it work in the browser. We do not start the next phase before then.
 | **6. Bookings** | Booking creation in a transaction, status machine, cancellation, customer + admin views | Two concurrent bookings for the same car: one wins, one gets 409 |
 | **7. Payments & deposits** | `PaymentProvider` abstraction, webhooks, refunds, deposit ledger | A webhook (not the browser) flips a booking to CONFIRMED |
 | **8. Rental lifecycle** | Pickup, inspections, extension, return, additional charges | Full pickup-to-return cycle for one booking |
-| **9. Charges & fleet admin** | Damages, fines, tolls, fuel, maintenance, insurance, expiry reminders | A damage charge reaches the deposit settlement correctly |
+| **9. Charges & fleet admin** ✅ | Damages, fines, tolls, fuel, maintenance, insurance, expiry reminders | A damage charge reaches the deposit settlement correctly; a maintenance window blocks those dates **only** |
 | **10. Output** | Invoices (PDF), notifications, coupons, reports | Downloadable invoice; revenue report matches payments |
 | **11. Hardening** | Security pass, test coverage, performance, OpenAPI, Docker, deployment | Security review clean; deployed to staging |
 

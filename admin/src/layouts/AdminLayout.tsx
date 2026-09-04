@@ -25,8 +25,8 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: 'Vehicles', to: '/vehicles' },
       { label: 'Categories', phase: 'Phase 4' },
-      { label: 'Maintenance', phase: 'Phase 9' },
-      { label: 'Insurance', phase: 'Phase 9' },
+      { label: 'Maintenance', to: '/maintenance' },
+      { label: 'Insurance & expiries', to: '/insurance' },
     ],
   },
   {
@@ -43,8 +43,8 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: 'Payments', phase: 'see a booking' },
       { label: 'Deposits', phase: 'see a booking' },
-      { label: 'Damages', phase: 'Phase 9' },
-      { label: 'Fines', phase: 'Phase 9' },
+      { label: 'Damages', to: '/damages' },
+      { label: 'Fines & tolls', to: '/fines' },
       { label: 'Invoices', phase: 'Phase 10' },
     ],
   },

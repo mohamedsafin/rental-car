@@ -161,3 +161,13 @@ export function normaliseMulterError(error: unknown): ApiError | null {
       return new ApiError(400, 'File upload failed.', ErrorCode.FILE_UPLOAD_ERROR);
   }
 }
+
+/**
+ * Vehicle paperwork: Mulkiya, policy certificate, inspection report.
+ *
+ * Deliberately the SAME handler as customer documents. The rules are
+ * identical - one file, same size cap, same allowed types - and a second
+ * multer instance would be one more place for those limits to drift apart.
+ * The separate name is there so route files read honestly.
+ */
+export const uploadVehicleDocument = uploadCustomerDocument;
