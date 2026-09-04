@@ -133,6 +133,7 @@ model User {
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  bookings      Booking[]
 
   @@index([role])
   @@index([status])
@@ -274,7 +275,8 @@ model VehicleCategory {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  vehicles Vehicle[]
+  vehicles     Vehicle[]
+  pricingRules PricingRule[]
 
   @@index([isActive])
   @@map("vehicle_categories")
@@ -369,8 +371,10 @@ model Vehicle {
   /// Soft delete: a vehicle with rental history must never be hard-deleted.
   deletedAt DateTime?
 
-  images   VehicleImage[]
-  features VehicleFeatureOnVehicle[]
+  images       VehicleImage[]
+  features     VehicleFeatureOnVehicle[]
+  bookings     Booking[]
+  pricingRules PricingRule[]
 
   // Indexes chosen for the queries the customer site actually runs: browse by
   // category, filter by status, and (Phase 4) the availability lookup.
@@ -436,9 +440,191 @@ model Location {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  vehicles Vehicle[]
+  vehicles        Vehicle[]
+  pickupBookings  Booking[] @relation("BookingPickupLocation")
+  dropoffBookings Booking[] @relation("BookingDropoffLocation")
 
   @@index([type])
   @@index([isActive])
   @@map("locations")
+}
+
+// ===========================================================================
+// PHASE 4 - Availability and pricing
+// ===========================================================================
+
+/// The booking lifecycle from BRD 21.
+///
+/// Which of these BLOCK a vehicle is the single most important decision in the
+/// availability engine - see `BLOCKING_STATUSES` in the availability module.
+enum BookingStatus {
+  /// Created but not yet paid. Holds the vehicle only until `holdExpiresAt`.
+  PENDING
+  PAYMENT_PENDING
+  DOCUMENT_VERIFICATION
+  CONFIRMED
+  READY_FOR_PICKUP
+  ACTIVE
+  EXTENSION_REQUESTED
+  RETURN_PENDING
+  RETURNED
+  COMPLETED
+  CANCELLED
+}
+
+/// How an add-on is charged (BRD 17).
+enum ServiceChargeType {
+  /// Charged once for the whole rental, e.g. delivery.
+  PER_BOOKING
+  /// Charged for each rental day, e.g. child seat.
+  PER_DAY
+}
+
+/// What kind of rate adjustment a rule makes (BRD 16).
+enum PricingRuleType {
+  /// Applies on specific weekdays, e.g. Fri/Sat weekend surcharge.
+  WEEKEND
+  /// Applies between two dates, e.g. peak season.
+  SEASONAL
+  /// Percentage off for rentals at or over a minimum number of days.
+  LONG_TERM_DISCOUNT
+}
+
+/// A booking.
+///
+/// PHASE 4 SCOPE: only the columns the availability engine needs, plus the
+/// price snapshot. The full lifecycle - services, coupons, documents, payment
+/// links - arrives in Phase 6. The table exists now because an availability
+/// engine with nothing to collide against cannot be tested, and BRD 34 makes
+/// overlap the headline acceptance criterion.
+model Booking {
+  id            String @id @default(uuid()) @db.Uuid
+  /// Human-facing reference, e.g. "BK-2026-00042". Shown on the invoice.
+  bookingNumber String @unique
+
+  vehicleId  String  @db.Uuid
+  vehicle    Vehicle @relation(fields: [vehicleId], references: [id])
+  customerId String  @db.Uuid
+  customer   User    @relation(fields: [customerId], references: [id])
+
+  pickupLocationId  String?   @db.Uuid
+  pickupLocation    Location? @relation("BookingPickupLocation", fields: [pickupLocationId], references: [id])
+  dropoffLocationId String?   @db.Uuid
+  dropoffLocation   Location? @relation("BookingDropoffLocation", fields: [dropoffLocationId], references: [id])
+
+  /// The rental window.
+  ///
+  /// @db.Timestamptz is explicit and load-bearing. Prisma's DateTime defaults
+  /// to `timestamp WITHOUT time zone`, which would store "10:00" with no record
+  /// of WHICH 10:00 - a real hazard for a rental business whose staff, servers
+  /// and customers may sit in different zones. It is also required by the
+  /// exclusion constraint below: tstzrange() is only IMMUTABLE (and therefore
+  /// indexable) over timestamptz columns.
+  pickupAt DateTime @db.Timestamptz(3)
+  returnAt DateTime @db.Timestamptz(3)
+
+  status        BookingStatus @default(PENDING)
+  /// While in the future, a PENDING booking holds the vehicle. Past it, the
+  /// hold lapses and the car becomes bookable again - so an abandoned checkout
+  /// cannot take a vehicle off sale indefinitely.
+  holdExpiresAt DateTime? @db.Timestamptz(3)
+
+  // --- Price snapshot ---------------------------------------------------
+  // Copied from the pricing engine at booking time, NOT looked up later. If
+  // the admin raises the daily rate next month, last month's invoice must not
+  // silently change.
+  rentalDays       Int
+  vehicleSubtotal  Decimal @db.Decimal(10, 2)
+  servicesSubtotal Decimal @default(0) @db.Decimal(10, 2)
+  deliveryFee      Decimal @default(0) @db.Decimal(10, 2)
+  discountAmount   Decimal @default(0) @db.Decimal(10, 2)
+  taxAmount        Decimal @default(0) @db.Decimal(10, 2)
+  /// Rental total EXCLUDING the deposit.
+  totalAmount      Decimal @db.Decimal(10, 2)
+  /// Held separately: a deposit is refundable and is not revenue.
+  securityDeposit  Decimal @default(0) @db.Decimal(10, 2)
+  currency         String  @default("AED")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  cancelledAt DateTime?
+
+  @@index([vehicleId, pickupAt, returnAt])
+  @@index([customerId])
+  @@index([status])
+  @@index([pickupAt])
+  @@map("bookings")
+}
+
+/// Optional extras a customer can add to a booking (BRD 17).
+///
+/// A table, not an enum: BRD 17 says "the client will provide the available
+/// services and prices", so both the list and the amounts must be editable
+/// from the Admin Dashboard without a deployment.
+model AdditionalService {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
+  slug        String  @unique
+  description String?
+
+  price       Decimal           @db.Decimal(10, 2)
+  chargeType  ServiceChargeType @default(PER_BOOKING)
+  /// Cap on how many of this service one booking may take, e.g. 3 child seats.
+  maxQuantity Int               @default(1)
+
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isActive])
+  @@map("additional_services")
+}
+
+/// Rate adjustments layered on top of a vehicle's base price (BRD 16).
+///
+/// Rules are data, not code, so the admin can add a Ramadan rate or a summer
+/// discount without a developer. `vehicleId` and `categoryId` are both optional:
+/// null on both means the rule applies fleet-wide.
+model PricingRule {
+  id   String          @id @default(uuid()) @db.Uuid
+  name String
+  type PricingRuleType
+
+  /// Narrow the rule to one vehicle, or one category, or neither (= all).
+  vehicleId  String?          @db.Uuid
+  vehicle    Vehicle?         @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  categoryId String?          @db.Uuid
+  category   VehicleCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  /// SEASONAL: the date window the rule covers.
+  startDate DateTime?
+  endDate   DateTime?
+
+  /// WEEKEND: ISO weekdays the rule applies to (1 = Monday ... 7 = Sunday).
+  /// The UAE weekend is Sat/Sun in most emirates but the client confirms it,
+  /// so it is stored rather than hardcoded.
+  weekdays Int[] @default([])
+
+  /// LONG_TERM_DISCOUNT: minimum rental length before the discount applies.
+  minDays Int?
+
+  /// Percentage change. Positive = surcharge, negative = discount.
+  /// e.g. 20 = +20% weekend rate; -15 = 15% off long rentals.
+  adjustmentPercentage Decimal @db.Decimal(5, 2)
+
+  /// Higher priority wins when two rules of the same type overlap.
+  priority Int     @default(0)
+  isActive Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([type, isActive])
+  @@index([vehicleId])
+  @@index([categoryId])
+  @@map("pricing_rules")
 }

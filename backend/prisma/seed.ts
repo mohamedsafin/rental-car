@@ -82,6 +82,9 @@ async function main(): Promise<void> {
     { key: 'documents.required_uae_resident', value: '[]', valueType: 'JSON', category: 'DOCUMENTS', label: 'Required documents - UAE resident' },
     { key: 'documents.required_visitor', value: '[]', valueType: 'JSON', category: 'DOCUMENTS', label: 'Required documents - visitor' },
 
+    { key: 'rental.minimum_rental_hours', value: '1', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Minimum rental duration (hours)', description: 'Structural floor. Confirm the commercial minimum with the client.' },
+    { key: 'rental.maximum_rental_days', value: '365', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Maximum rental duration (days)' },
+    { key: 'rental.booking_hold_minutes', value: '30', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Unpaid booking hold (minutes)', description: 'How long an unpaid booking holds a vehicle before the hold lapses.' },
     { key: 'reminders.expiry_days', value: '[30,15,7,0]', valueType: 'JSON', category: 'SYSTEM', label: 'Expiry reminder days', description: 'BRD 41 gives these as an example; admin-configurable.' },
   ] as const;
 
@@ -147,6 +150,48 @@ async function main(): Promise<void> {
   const locationCount = await prisma.location.count();
   if (locationCount === 0) {
     console.log('No locations seeded - add real ones in the admin dashboard (BRD 38).');
+  }
+
+  // --- Additional services (BRD 17) --------------------------------------
+  // The BRD's own list of examples. Prices are seeded at 0 and marked
+  // INACTIVE, because BRD 17 says "the client will provide the available
+  // services and prices" - a seeded "Child seat: AED 50" would be a made-up
+  // number that ends up on a real invoice. The admin sets the price, then
+  // activates the service.
+  const services = [
+    { name: 'Additional Driver', slug: 'additional-driver', chargeType: 'PER_BOOKING', maxQuantity: 3, displayOrder: 1 },
+    { name: 'Child Seat', slug: 'child-seat', chargeType: 'PER_DAY', maxQuantity: 3, displayOrder: 2 },
+    { name: 'GPS Navigation Device', slug: 'gps-device', chargeType: 'PER_DAY', maxQuantity: 1, displayOrder: 3 },
+    { name: 'Vehicle Delivery', slug: 'vehicle-delivery', chargeType: 'PER_BOOKING', maxQuantity: 1, displayOrder: 4 },
+    { name: 'Vehicle Collection', slug: 'vehicle-collection', chargeType: 'PER_BOOKING', maxQuantity: 1, displayOrder: 5 },
+    { name: 'Additional Mileage Package', slug: 'additional-mileage', chargeType: 'PER_BOOKING', maxQuantity: 1, displayOrder: 6 },
+  ] as const;
+
+  for (const service of services) {
+    await prisma.additionalService.upsert({
+      where: { slug: service.slug },
+      update: {},
+      create: {
+        name: service.name,
+        slug: service.slug,
+        chargeType: service.chargeType,
+        maxQuantity: service.maxQuantity,
+        displayOrder: service.displayOrder,
+        price: 0,
+        // Off until the client confirms a price. An active service priced at
+        // zero would quietly give away child seats.
+        isActive: false,
+      },
+    });
+  }
+  console.log(`Seeded ${services.length} additional services (inactive, price 0 - set these in the admin dashboard).`);
+
+  // No pricing rules are seeded. Weekend surcharges, seasonal rates and
+  // long-term discount tiers are commercial decisions (BRD 16), and the UAE
+  // weekend itself varies by emirate. The admin creates these.
+  const ruleCount = await prisma.pricingRule.count();
+  if (ruleCount === 0) {
+    console.log('No pricing rules seeded - weekend/seasonal/discount rates are yours to define (BRD 16).');
   }
 }
 

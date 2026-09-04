@@ -23,10 +23,24 @@ const FUEL_LABEL: Record<string, string> = {
   ELECTRIC: 'Electric',
 };
 
-export default function VehicleCard({ vehicle }: { vehicle: Vehicle }) {
+interface VehicleCardProps {
+  vehicle: Vehicle;
+  /**
+   * Query string appended to the details link, used to carry the searched
+   * dates through so the details page can quote straight away rather than
+   * asking the customer to enter them a second time.
+   */
+  detailsQuery?: string;
+}
+
+export default function VehicleCard({ vehicle, detailsQuery }: VehicleCardProps) {
+  const detailsHref = detailsQuery
+    ? `/cars/${vehicle.id}?${detailsQuery}`
+    : `/cars/${vehicle.id}`;
+
   return (
     <article className="overflow-hidden rounded-lg border border-slate-200 bg-white transition hover:shadow-md">
-      <Link to={`/cars/${vehicle.id}`} className="block">
+      <Link to={detailsHref} className="block">
         <div className="relative aspect-[4/3] bg-slate-100">
           {vehicle.primaryImageUrl ? (
             <img
@@ -53,7 +67,7 @@ export default function VehicleCard({ vehicle }: { vehicle: Vehicle }) {
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="truncate font-semibold text-slate-900">
-              <Link to={`/cars/${vehicle.id}`}>{vehicle.name}</Link>
+              <Link to={detailsHref}>{vehicle.name}</Link>
             </h3>
             <p className="text-xs text-slate-500">
               {vehicle.year} - {vehicle.category.name}
@@ -81,7 +95,7 @@ export default function VehicleCard({ vehicle }: { vehicle: Vehicle }) {
             </p>
           </div>
           <Link
-            to={`/cars/${vehicle.id}`}
+            to={detailsHref}
             className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
           >
             View

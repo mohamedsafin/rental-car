@@ -59,7 +59,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'System',
     items: [
-      { label: 'Pricing', phase: 'Phase 4' },
+      { label: 'Pricing', to: '/pricing' },
       { label: 'Locations', to: '/locations' },
       { label: 'Reports', phase: 'Phase 10' },
       { label: 'Settings', phase: 'Phase 10' },

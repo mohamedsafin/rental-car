@@ -15,6 +15,9 @@ import { categoryRoutes } from '../modules/categories/routes';
 import { featureRoutes } from '../modules/features/routes';
 import { vehicleRoutes } from '../modules/vehicles/routes';
 import { locationRoutes } from '../modules/locations/routes';
+import { availabilityRoutes } from '../modules/availability/routes';
+import { pricingRoutes } from '../modules/pricing/routes';
+import { pricingAdminRoutes } from '../modules/pricing/adminRoutes';
 
 const router = Router();
 
@@ -25,10 +28,13 @@ router.use('/categories', categoryRoutes);
 router.use('/features', featureRoutes);
 router.use('/vehicles', vehicleRoutes);
 router.use('/locations', locationRoutes);
+router.use('/availability', availabilityRoutes);
+router.use('/pricing', pricingRoutes);
+// Admin-only pricing management. Mounted under its own prefix so the public
+// /pricing routes stay unambiguously public.
+router.use('/admin/pricing', pricingAdminRoutes);
 
 // --- Mounted in later phases -------------------------------------------
-// router.use('/availability', availabilityRoutes); // Phase 4
-// router.use('/pricing', pricingRoutes);        // Phase 4
 // router.use('/customers', customerRoutes);     // Phase 5
 // router.use('/documents', documentRoutes);     // Phase 5
 // router.use('/bookings', bookingRoutes);       // Phase 6

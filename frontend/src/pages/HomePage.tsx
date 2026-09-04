@@ -10,6 +10,7 @@
 import { Link } from 'react-router-dom';
 import { useCategories, useVehicles } from '../features/fleet/useFleet';
 import VehicleCard from '../components/VehicleCard';
+import SearchWidget from '../components/SearchWidget';
 
 export default function HomePage() {
   const { data: categoryData } = useCategories();
@@ -22,14 +23,21 @@ export default function HomePage() {
         <p className="mx-auto mt-2 max-w-xl text-slate-600">
           Browse the fleet, compare rates and pick the vehicle that fits your trip.
         </p>
-        <Link
-          to="/cars"
-          className="mt-6 inline-block rounded-md bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-        >
-          Browse all cars
-        </Link>
-        <p className="mt-4 text-xs text-slate-500">
-          Date and location search arrives with the availability engine
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold text-slate-900">Find a car</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Pick your dates and we will show only the cars actually free for them.
+        </p>
+        <div className="mt-4">
+          <SearchWidget />
+        </div>
+        <p className="mt-3 text-center text-sm text-slate-500">
+          or{' '}
+          <Link to="/cars" className="font-medium text-slate-900 underline">
+            browse the whole fleet
+          </Link>
         </p>
       </section>
 

@@ -3,13 +3,14 @@
  * ---------------------------------------------------------------------------
  * One vehicle in full (BRD 9): gallery, specification, features, rental terms.
  *
- * The "Book now" button is deliberately disabled. Booking needs the
- * availability engine (Phase 4) and the booking module (Phase 6) - and a button
- * that looks live but silently does nothing is worse than one that says so.
+ * The right-hand column is now a LIVE quote: pick dates, choose extras, and
+ * the backend prices it. Checkout itself still waits for the booking module,
+ * so the final button stays visibly disabled rather than pretending.
  */
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useVehicle } from '../features/fleet/useFleet';
+import QuotePanel from '../components/QuotePanel';
 
 const SPEC_LABELS: Record<string, string> = {
   AUTOMATIC: 'Automatic',
@@ -19,15 +20,6 @@ const SPEC_LABELS: Record<string, string> = {
   HYBRID: 'Hybrid',
   ELECTRIC: 'Electric',
 };
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between">
-      <dt className="text-slate-600">{label}</dt>
-      <dd className="font-medium text-slate-900">{value}</dd>
-    </div>
-  );
-}
 
 function Spec({ label, value }: { label: string; value: string }) {
   return (
@@ -40,8 +32,19 @@ function Spec({ label, value }: { label: string; value: string }) {
 
 export default function CarDetailsPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const { data, isPending, isError, error } = useVehicle(id);
   const [activeImage, setActiveImage] = useState(0);
+
+  // Dates carried over from a search, so someone arriving from results does
+  // not have to type them again.
+  const carriedDates = {
+    pickupDate: searchParams.get('pickupDate') ?? undefined,
+    pickupTime: searchParams.get('pickupTime') ?? undefined,
+    returnDate: searchParams.get('returnDate') ?? undefined,
+    returnTime: searchParams.get('returnTime') ?? undefined,
+    pickupLocationId: searchParams.get('pickupLocationId') ?? undefined,
+  };
 
   if (isPending) {
     return <div className="h-96 animate-pulse rounded-lg bg-slate-200" />;
@@ -62,7 +65,6 @@ export default function CarDetailsPage() {
   }
 
   const vehicle = data.vehicle;
-  const currency = vehicle.pricing.currency;
   const images = vehicle.images;
 
   return (
@@ -120,38 +122,8 @@ export default function CarDetailsPage() {
             {vehicle.color ? ` - ${vehicle.color}` : ''}
           </p>
 
-          <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
-            <p className="text-2xl font-bold text-slate-900">
-              {currency} {vehicle.pricing.daily}
-              <span className="ml-1 text-sm font-normal text-slate-500">/ day</span>
-            </p>
-
-            <dl className="mt-3 space-y-1 text-sm">
-              {vehicle.pricing.weekly && (
-                <Row label="Weekly rate" value={`${currency} ${vehicle.pricing.weekly}`} />
-              )}
-              {vehicle.pricing.monthly && (
-                <Row label="Monthly rate" value={`${currency} ${vehicle.pricing.monthly}`} />
-              )}
-              <Row label="Security deposit" value={`${currency} ${vehicle.pricing.securityDeposit}`} />
-              <Row
-                label="Mileage"
-                value={vehicle.mileage.limitPerDay ? `${vehicle.mileage.limitPerDay} km/day` : 'Unlimited'}
-              />
-              {vehicle.mileage.extraCharge && (
-                <Row label="Extra mileage" value={`${currency} ${vehicle.mileage.extraCharge} / km`} />
-              )}
-            </dl>
-
-            <button
-              type="button"
-              disabled
-              title="Booking opens once the availability and booking modules are built"
-              className="mt-4 w-full cursor-not-allowed rounded-md bg-slate-300 px-4 py-2 text-sm font-medium text-slate-600"
-            >
-              Book now
-            </button>
-            <p className="mt-2 text-center text-xs text-slate-500">Booking opens in a later phase</p>
+          <div className="mt-5">
+            <QuotePanel vehicle={vehicle} initial={carriedDates} />
           </div>
 
           {vehicle.location && (

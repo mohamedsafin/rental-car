@@ -66,11 +66,17 @@ function buildWhere(query: ListVehiclesQuery, isAdmin: boolean): Prisma.VehicleW
 }
 
 export const vehiclesRepository = {
+  /**
+   * @param extraWhere  Additional constraints merged into the filter. The
+   *   availability search uses it to exclude vehicles already booked, without
+   *   this module needing to know anything about bookings.
+   */
   async list(
     query: ListVehiclesQuery,
     isAdmin: boolean,
+    extraWhere?: Prisma.VehicleWhereInput,
   ): Promise<{ items: VehicleWithRelations[]; total: number }> {
-    const where = buildWhere(query, isAdmin);
+    const where: Prisma.VehicleWhereInput = { ...buildWhere(query, isAdmin), ...(extraWhere ?? {}) };
 
     // One transaction for page + count, so the total always matches the page.
     const [items, total] = await prisma.$transaction([

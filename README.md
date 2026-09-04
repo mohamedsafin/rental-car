@@ -9,13 +9,15 @@ document requirements — are **configurable settings, not hardcoded numbers**.
 
 ## Status
 
-**Phase 3 complete — Fleet: vehicles, categories, locations, images.** See
+**Phase 4 complete — Availability engine, search & pricing.** See
 [docs/development-plan.md](docs/development-plan.md) for the roadmap.
 
 Done so far: monorepo foundation and health checks; JWT auth with
-refresh-token rotation and backend-enforced RBAC; and the fleet — vehicle CRUD
-with validated image upload, categories, features and locations, browsable on
-the customer site and managed from the admin dashboard.
+refresh-token rotation and backend-enforced RBAC; the fleet (vehicles,
+categories, features, locations, validated image upload); and the availability
+and pricing engines — dated search that returns only bookable cars, a
+double-booking guarantee enforced by a PostgreSQL exclusion constraint, and a
+full price breakdown computed server-side.
 
 ## Stack
 

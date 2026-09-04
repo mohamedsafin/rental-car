@@ -10,6 +10,7 @@ import PublicLayout from '../layouts/PublicLayout';
 import ProtectedRoute from '../components/ProtectedRoute';
 import HomePage from '../pages/HomePage';
 import CarsPage from '../pages/CarsPage';
+import SearchResultsPage from '../pages/SearchResultsPage';
 import CarDetailsPage from '../pages/CarDetailsPage';
 import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
@@ -23,6 +24,7 @@ export default function AppRoutes() {
         {/* Public */}
         <Route path="/" element={<HomePage />} />
         <Route path="/cars" element={<CarsPage />} />
+        <Route path="/search" element={<SearchResultsPage />} />
         <Route path="/cars/:id" element={<CarDetailsPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />

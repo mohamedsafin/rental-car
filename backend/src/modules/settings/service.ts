@@ -1,0 +1,111 @@
+/**
+ * modules/settings/service.ts
+ * ---------------------------------------------------------------------------
+ * Typed reader for the `system_settings` table.
+ *
+ * BRD 38 is explicit that VAT rate, deposit rules, cancellation windows and
+ * minimum age are "to be provided by the client". This module is how the rest
+ * of the code consumes them WITHOUT inventing a fallback.
+ *
+ * The critical design decision: an unset setting returns `null`, never a
+ * plausible-looking default. If VAT is not configured, `getNumber('pricing.
+ * vat_percentage')` gives null and the pricing engine reports "tax not
+ * configured" rather than silently charging 5% - a number nobody approved,
+ * which would then appear on real invoices.
+ *
+ * Values are cached briefly: pricing reads several on every quote, and settings
+ * change a handful of times a year.
+ */
+import { prisma } from '../../config/prisma';
+import { logger } from '../../config/logger';
+
+const CACHE_TTL_MS = 30_000;
+
+interface CacheEntry {
+  value: string | null;
+  fetchedAt: number;
+}
+
+const cache = new Map<string, CacheEntry>();
+
+/** Drop the cache. Called after any settings write, and by tests. */
+export function clearSettingsCache(): void {
+  cache.clear();
+}
+
+async function readRaw(key: string): Promise<string | null> {
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  const setting = await prisma.systemSetting.findUnique({ where: { key } });
+  // An empty string means "seeded but not yet filled in by the client", which
+  // is the same as absent for every consumer.
+  const value = setting && setting.value.trim() !== '' ? setting.value : null;
+
+  cache.set(key, { value, fetchedAt: Date.now() });
+  return value;
+}
+
+export const settingsService = {
+  async getString(key: string): Promise<string | null> {
+    return readRaw(key);
+  },
+
+  /** Returns null when unset OR unparseable - never a guessed number. */
+  async getNumber(key: string): Promise<number | null> {
+    const raw = await readRaw(key);
+    if (raw === null) return null;
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      logger.warn('System setting is not a valid number', { key, value: raw });
+      return null;
+    }
+    return parsed;
+  },
+
+  async getBoolean(key: string): Promise<boolean | null> {
+    const raw = await readRaw(key);
+    if (raw === null) return null;
+    return raw === 'true' || raw === '1';
+  },
+
+  async getJson<T>(key: string): Promise<T | null> {
+    const raw = await readRaw(key);
+    if (raw === null) return null;
+
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      logger.warn('System setting is not valid JSON', { key });
+      return null;
+    }
+  },
+
+  /**
+   * A number with an explicit fallback.
+   *
+   * Use ONLY where the fallback is a structural default rather than a business
+   * value the client must approve. `turnaround_buffer_hours` defaults to 0
+   * (back-to-back rentals allowed) because zero is the absence of a policy.
+   * VAT must NEVER use this - there is no safe default tax rate.
+   */
+  async getNumberOr(key: string, fallback: number): Promise<number> {
+    return (await settingsService.getNumber(key)) ?? fallback;
+  },
+};
+
+/** Keys used by more than one module, so a typo cannot silently read nothing. */
+export const SettingKey = {
+  VAT_PERCENTAGE: 'pricing.vat_percentage',
+  CURRENCY: 'pricing.currency',
+  TURNAROUND_BUFFER_HOURS: 'rental.turnaround_buffer_hours',
+  MINIMUM_RENTAL_AGE: 'rental.minimum_age',
+  MIN_RENTAL_HOURS: 'rental.minimum_rental_hours',
+  MAX_RENTAL_DAYS: 'rental.maximum_rental_days',
+  BOOKING_HOLD_MINUTES: 'rental.booking_hold_minutes',
+  CANCELLATION_FREE_WINDOW_HOURS: 'cancellation.free_window_hours',
+  CANCELLATION_FEE_PERCENTAGE: 'cancellation.fee_percentage',
+} as const;

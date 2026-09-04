@@ -194,11 +194,69 @@ Images are stored under an opaque provider key and served from `/uploads/...`. T
 
 ---
 
+## Phase 4 endpoints
+
+### Availability and search
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/availability/search` | optional | Vehicles bookable for a date range (BRD 6) |
+| GET | `/availability/check` | optional | One vehicle, one window |
+| GET | `/availability/:vehicleId/blocked-dates` | public | Dates to grey out in a calendar |
+
+Search accepts the BRD's six form fields (`pickupDate`, `pickupTime`, `returnDate`, `returnTime`, `pickupLocationId`, `dropoffLocationId`) **or** ISO instants (`pickupAt`, `returnAt`), plus every `/vehicles` filter. Times without an offset are read as UTC, never as the server's local zone.
+
+An ADMIN/STAFF token on `/availability/check` adds the conflicting booking numbers; customers get a plain yes/no.
+
+### Pricing
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/pricing/quote` | public | Full price breakdown + availability in one call |
+| GET | `/pricing/services` | public | Bookable add-ons (BRD 17) |
+| GET/PATCH | `/admin/pricing/settings` | ADMIN | VAT rate, rental limits |
+| GET/POST/PATCH | `/admin/pricing/services` | ADMIN | Add-on prices and activation |
+| GET/POST/DELETE | `/admin/pricing/rules` | ADMIN | Weekend, seasonal, long-term rules (BRD 16) |
+
+`/pricing/quote` is a POST because the body carries selected services, but it has no side effects. **It has no `total` field** — a total sent by a client is stripped by the validation middleware and the engine recalculates from scratch.
+
+---
+
+## The overlap rule (BRD 34)
+
+Two rental periods overlap when:
+
+```
+existingStart < requestedEnd  AND  existingEnd > requestedStart
+```
+
+Both comparisons are **strict**, making the rental window half-open — `[pickupAt, returnAt)`. The vehicle is held from pickup up to but *not including* the return instant, so a return time is an available pickup time for the next customer.
+
+| Booking A | Booking B | Result |
+| --- | --- | --- |
+| 10 Sep → 15 Sep | 12 Sep → 18 Sep | **Rejected** — overlap |
+| 10 Sep → 15 Sep | 15 Sep → 20 Sep | **Allowed** — periods touch |
+
+Enforced at three layers: the search filter, a re-check inside the booking transaction (Phase 6), and a PostgreSQL **exclusion constraint** (`bookings_no_overlapping_rental`) that cannot lose a race because the database evaluates it inside the INSERT.
+
+`rental.turnaround_buffer_hours` (default 0) widens each check for cleaning and inspection time. It lives in the service, not the constraint, because a value read at request time cannot sit in an immutable index.
+
+## Pricing conventions
+
+**Day counting** — billed as 24-hour periods; any part of a period is a full day. Returning one hour late costs a whole extra day. Surfaced in every quote as `period.dayCountingRule` for the client to confirm.
+
+**Tier selection** — a 10-day rental is not 10 daily rates. Every sensible decomposition of months/weeks/days is computed and the **cheapest** wins, including rounding up to the next whole tier when that is cheaper.
+
+**Order of operations** — rental → surcharges → services → delivery → discount → **tax on that base** → deposit reported separately. Discounts precede tax so customers are not taxed on money they did not pay; the refundable deposit is outside the tax base entirely.
+
+**Unconfigured values are reported, never guessed.** With no VAT rate set, quotes carry a `warnings` entry rather than a silently invented 5%.
+
+---
+
 ## Planned endpoints
 
 | Phase | Prefix |
 | --- | --- |
-| 4 | `/availability`, `/pricing` |
 | 5 | `/customers`, `/documents` |
 | 6 | `/bookings` |
 | 7 | `/payments`, `/deposits` |

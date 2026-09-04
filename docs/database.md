@@ -46,16 +46,25 @@ fixed roles do not need a join.
 | `vehicle_features` + `vehicle_features_on_vehicles` | Bluetooth, GPS, CarPlay... A lookup table with an explicit join, so "filter by feature" is an index lookup rather than a text match, and the join can gain columns later. |
 | `locations` | Offices, airports, delivery areas, working hours, delivery charge. |
 
-### Phase 4 — money and availability
+### Phase 4 — money and availability (done)
 | Table | Purpose |
 | --- | --- |
 | `pricing_rules` | Daily/weekly/monthly/weekend/seasonal rates and long-term discounts. |
 | `additional_services` | Child seat, GPS, additional driver, delivery. |
 
-Availability has **no table of its own** — it is derived from `bookings`,
+Also added in Phase 4: `bookings` (core columns only — the full lifecycle is
+Phase 6), because an availability engine with nothing to collide against cannot
+be tested.
+
+Availability still has **no table of its own** — it is derived from `bookings`,
 `maintenance_records` and `vehicles.status`. A separate availability table would
-be a second source of truth that can drift out of sync with the bookings, which
-is exactly how double bookings happen.
+be a second source of truth that drifts, which is exactly how double bookings
+happen.
+
+`bookings.pickupAt` / `returnAt` are `@db.Timestamptz(3)`, not Prisma's default
+`timestamp without time zone`. A rental that starts at "10:00" must mean the
+same instant everywhere, and `tstzrange()` is only IMMUTABLE — and therefore
+indexable — over timezone-aware columns.
 
 ### Phase 5 — customers and documents
 | Table | Purpose |
