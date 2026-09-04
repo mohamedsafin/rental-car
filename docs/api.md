@@ -367,11 +367,91 @@ seed empty; unset means **no fee**, the same rule as VAT.
 
 ---
 
+## Phase 7 endpoints
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/payments/webhook` | **HMAC signature** | The only path to a successful payment |
+| POST | `/payments/initiate` | any | Create a session, return a checkout URL |
+| GET | `/payments/booking/:id` | owner or STAFF | Payment history (BRD 22) |
+| POST | `/payments/:id/refund` | ADMIN | Full or partial refund (BRD 32) |
+| GET | `/deposits/booking/:bookingId` | owner or STAFF | Deposit + full ledger |
+| GET | `/deposits` | STAFF/ADMIN | Deposits list |
+| POST | `/deposits/booking/:bookingId/deduct` | STAFF/ADMIN | Deduct, with category + reason |
+| POST | `/deposits/booking/:bookingId/release` | STAFF/ADMIN | Return the balance |
+
+## Only a webhook can confirm a payment
+
+There is **no endpoint a browser can call** to mark a payment successful — no
+`/confirm`, no `/success`, no status parameter on the return URL. The customer's
+browser is under the customer's control, and *"the frontend said it worked"* is
+how rental systems get defrauded.
+
+A webhook must clear four gates:
+
+1. **Signature** — HMAC-SHA256 over the RAW bytes, compared with
+   `timingSafeEqual`. A missing or forged signature is a 401.
+2. **Idempotency** — every event is inserted into `webhook_events` with a
+   UNIQUE `(provider, eventId)`. The *database* rejects a repeat, not an
+   application check two concurrent deliveries could both pass.
+3. **Known payment** — an unrecognised reference is acknowledged and discarded.
+4. **Amount match** — compared against our own record.
+
+Gate 4 is the one people skip. A signature proves the message came from the
+provider; it does **not** prove the amount is what we asked for. Verified live:
+
+```
+forged signature              -> 401  Invalid webhook signature
+no signature                  -> 401  Missing webhook signature
+VALID signature, amount 1.00  -> 200  { handled: false, reason: "amount_mismatch" }
+booking status after all three -> PAYMENT_PENDING
+
+correct signature + amount    -> 200  { handled: true }
+booking status                 -> CONFIRMED
+same webhook twice more        -> { handled: true, reason: "duplicate" }
+```
+
+`express.json()` is deliberately **skipped** for the webhook path. Parsing and
+re-serialising the body changes the bytes and breaks every signature.
+
+## The deposit ledger (BRD 20)
+
+The balance is **derived**, never stored:
+
+```
+balance = sum(HOLD) - sum(DEDUCTION) - sum(RELEASE)
+```
+
+`deposit_transactions` is append-only, and every deduction carries a category
+and a reason the customer can read. A stored balance can be silently
+overwritten; a ledger cannot.
+
+```
+HOLD        3000.00               Security deposit received
+DEDUCTION    450.00  DAMAGE       Scratch on the rear bumper, photographed at return
+DEDUCTION    120.00  FUEL         Returned with three-quarters of a tank
+RELEASE     2430.00               Deposit returned to customer
+```
+
+Deductions beyond the balance are refused — excess charges become a separate
+invoice, never a negative deposit.
+
+## No card data, anywhere
+
+The `PaymentProvider` interface has no field for a card number, CVV or expiry —
+not even optionally. The surest way to honour BRD 19 and 46 is for the types to
+have nowhere to put them. Only provider references are stored.
+
+The gateway itself is unchosen (BRD 19). `PAYMENT_PROVIDER=mock` is a
+development driver that signs webhooks with the same HMAC scheme and **refuses
+to boot in production**.
+
+---
+
 ## Planned endpoints
 
 | Phase | Prefix |
 | --- | --- |
-| 7 | `/payments`, `/deposits` |
 | 8 | `/rentals`, `/inspections` |
 | 9 | `/damages`, `/fines`, `/tolls`, `/maintenance`, `/insurance` |
 | 10 | `/coupons`, `/invoices`, `/notifications`, `/reports` |

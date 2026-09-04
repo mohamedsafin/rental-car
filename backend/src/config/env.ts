@@ -67,6 +67,18 @@ const envSchema = z.object({
   // production this is the real domain, not localhost.
   PUBLIC_API_URL: z.string().url().default('http://localhost:4000'),
 
+  // Payments. The gateway is the client's choice (BRD 19); `mock` is a
+  // development driver that refuses to run in production.
+  PAYMENT_PROVIDER: z
+    .enum(['mock', 'stripe', 'telr', 'network_international', 'paytabs'])
+    .default('mock'),
+  PAYMENT_API_KEY: z.string().optional(),
+  PAYMENT_SECRET_KEY: z.string().optional(),
+  // Verifies webhook signatures. Without it, webhooks are refused outright.
+  PAYMENT_WEBHOOK_SECRET: z.string().optional(),
+  // Where the provider returns the customer after payment.
+  PAYMENT_RETURN_URL: z.string().url().default('http://localhost:5173/account/bookings'),
+
   // File storage
   STORAGE_DRIVER: z.enum(['local', 's3', 'cloudinary']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./uploads'),

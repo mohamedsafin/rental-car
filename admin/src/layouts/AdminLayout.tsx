@@ -41,8 +41,8 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Finance',
     items: [
-      { label: 'Payments', phase: 'Phase 7' },
-      { label: 'Deposits', phase: 'Phase 7' },
+      { label: 'Payments', phase: 'see a booking' },
+      { label: 'Deposits', phase: 'see a booking' },
       { label: 'Damages', phase: 'Phase 9' },
       { label: 'Fines', phase: 'Phase 9' },
       { label: 'Invoices', phase: 'Phase 10' },

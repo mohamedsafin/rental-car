@@ -88,13 +88,14 @@ Critical indexes for the overlap query:
 @@index([status])
 ```
 
-### Phase 7 — payments
+### Phase 7 — payments (done)
 | Table | Purpose |
 | --- | --- |
 | `payments` | One row per gateway attempt. Provider reference, status, amount. No card data, ever. |
 | `refunds` | Full and partial refunds, with status. |
 | `security_deposits` | Held amount and its settlement. |
 | `deposit_transactions` | Every hold, deduction and release, append-only. |
+| `webhook_events` | Every provider webhook, with a UNIQUE `(provider, eventId)`. This table IS the idempotency guarantee — a retried delivery is rejected by the database. |
 
 `deposit_transactions` is a ledger: the deposit balance is the sum of its rows,
 never an edited number. When a customer disputes a deduction, the ledger is the

@@ -138,6 +138,8 @@ model User {
   reviewedDocuments    CustomerDocument[]     @relation("DocumentReviewer")
   cancelledBookings    Booking[]              @relation("BookingCanceller")
   bookingStatusChanges BookingStatusHistory[] @relation("BookingStatusChanger")
+  initiatedRefunds     Refund[]               @relation("RefundInitiator")
+  depositTransactions  DepositTransaction[]   @relation("DepositTransactionCreator")
 
   @@index([role])
   @@index([status])
@@ -569,6 +571,11 @@ model Booking {
 
   services      BookingService[]
   statusHistory BookingStatusHistory[]
+  payments      Payment[]
+  /// Named `deposit`, not `securityDeposit`: that name is already taken by the
+  /// Decimal snapshot column above. The column is the AGREED amount; this
+  /// relation is the record of what was actually held and settled.
+  deposit       SecurityDeposit?
 
   @@index([vehicleId, pickupAt, returnAt])
   @@index([customerId])
@@ -841,4 +848,206 @@ model BookingStatusHistory {
 
   @@index([bookingId])
   @@map("booking_status_history")
+}
+
+// ===========================================================================
+// PHASE 7 - Payments, refunds and security deposits
+// ===========================================================================
+
+/// What a payment is FOR. Rental money is revenue; a deposit is a refundable
+/// hold. Mixing them in one column would make the revenue report wrong.
+enum PaymentType {
+  RENTAL
+  SECURITY_DEPOSIT
+  /// Charges raised after return: damage, fines, fuel (Phase 9).
+  ADDITIONAL_CHARGE
+  EXTENSION
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum DepositStatus {
+  /// Not yet taken.
+  PENDING
+  HELD
+  PARTIALLY_RELEASED
+  RELEASED
+  FORFEITED
+}
+
+/// Every movement on a deposit. Append-only.
+enum DepositTransactionType {
+  HOLD
+  DEDUCTION
+  RELEASE
+}
+
+/// What a deduction was for (BRD 20).
+enum DeductionCategory {
+  DAMAGE
+  TRAFFIC_FINE
+  TOLL
+  FUEL
+  CLEANING
+  LATE_RETURN
+  OTHER
+}
+
+/// A payment attempt.
+///
+/// NO CARD DATA. BRD 19 and 46 are explicit: raw card details are the payment
+/// provider's problem, never ours. All we keep is the provider's own reference
+/// so a transaction can be reconciled.
+model Payment {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id])
+
+  type   PaymentType
+  status PaymentStatus @default(PENDING)
+
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("AED")
+
+  /// Which provider handled it - the client picks this (BRD 19).
+  provider          String
+  /// The provider's id for the transaction. Unique per provider so a repeated
+  /// webhook cannot create a second payment row for the same charge.
+  providerPaymentId String? @unique
+  /// Reference shown to the customer / used for reconciliation.
+  providerReference String?
+
+  /// Sent to the provider so a retried create cannot double-charge.
+  idempotencyKey String @unique
+
+  failureReason String?
+  paidAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  refunds Refund[]
+
+  @@index([bookingId])
+  @@index([status])
+  @@map("payments")
+}
+
+model Refund {
+  id        String  @id @default(uuid()) @db.Uuid
+  paymentId String  @db.Uuid
+  payment   Payment @relation(fields: [paymentId], references: [id])
+
+  amount Decimal      @db.Decimal(10, 2)
+  status RefundStatus @default(PENDING)
+  reason String?
+
+  providerRefundId String? @unique
+
+  /// Who authorised it. Null for automatic policy refunds.
+  initiatedById String? @db.Uuid
+  initiatedBy   User?   @relation("RefundInitiator", fields: [initiatedById], references: [id], onDelete: SetNull)
+
+  failureReason String?
+  completedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([paymentId])
+  @@index([status])
+  @@map("refunds")
+}
+
+/// The security deposit for one booking (BRD 20).
+///
+/// The `amount` here is what was AGREED. What is actually outstanding is the
+/// sum of the ledger below - never a number edited in place.
+model SecurityDeposit {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @unique @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id])
+
+  amount   Decimal       @db.Decimal(10, 2)
+  currency String        @default("AED")
+  status   DepositStatus @default(PENDING)
+
+  heldAt    DateTime?
+  settledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions DepositTransaction[]
+
+  @@index([status])
+  @@map("security_deposits")
+}
+
+/// Append-only ledger of deposit movements.
+///
+/// The balance is DERIVED by summing these rows, never stored as an editable
+/// figure. When a customer disputes "you kept AED 500 of my deposit", the
+/// ledger is the answer - and an append-only record cannot be quietly amended.
+model DepositTransaction {
+  id        String          @id @default(uuid()) @db.Uuid
+  depositId String          @db.Uuid
+  deposit   SecurityDeposit @relation(fields: [depositId], references: [id], onDelete: Cascade)
+
+  type   DepositTransactionType
+  /// Always POSITIVE. The `type` says which direction it moves.
+  amount Decimal                @db.Decimal(10, 2)
+
+  category DeductionCategory?
+  reason   String?
+
+  /// Who recorded it. Null for automatic movements.
+  createdById String? @db.Uuid
+  createdBy   User?   @relation("DepositTransactionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([depositId])
+  @@map("deposit_transactions")
+}
+
+/// Every webhook the provider sends us.
+///
+/// This table is what makes webhook handling IDEMPOTENT. Providers retry
+/// aggressively - a payment webhook can arrive three times - and without a
+/// record of what has been processed, a booking could be confirmed twice or a
+/// refund issued twice.
+model WebhookEvent {
+  id       String @id @default(uuid()) @db.Uuid
+  provider String
+  /// The provider's own event id. UNIQUE: the second delivery is rejected by
+  /// the database, not by a race-prone application check.
+  eventId  String
+  type     String
+
+  /// Stored verbatim for debugging and dispute resolution.
+  payload Json
+
+  processedAt DateTime?
+  /// Set when handling failed, so an operator can investigate and replay.
+  error       String?
+
+  receivedAt DateTime @default(now())
+
+  @@unique([provider, eventId])
+  @@index([processedAt])
+  @@map("webhook_events")
 }

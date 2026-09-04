@@ -60,9 +60,26 @@ export function createApp(): Application {
   );
 
   // 4. Body parsing. The 1mb cap stops a trivial memory-exhaustion attack;
-  //    real file uploads go through multipart handling in Phase 5, not here.
-  app.use(express.json({ limit: '1mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+  //    real file uploads go through multipart handling, not here.
+  //
+  //    THE WEBHOOK PATH IS EXCLUDED, and that exclusion is load-bearing.
+  //    A payment webhook's HMAC signature is computed over the EXACT bytes the
+  //    provider sent. If express.json() parses the body here, the route's
+  //    raw() middleware sees an already-parsed object, the signature check
+  //    receives an object instead of a Buffer, and every webhook fails. We
+  //    found this the hard way: it surfaced as a 500 rather than a 401, which
+  //    would have looked like a provider outage rather than a broken
+  //    verification path.
+  const WEBHOOK_PATH = `${env.API_PREFIX}/payments/webhook`;
+
+  app.use((req, res, next) => {
+    if (req.path === WEBHOOK_PATH) return next();
+    return express.json({ limit: '1mb' })(req, res, next);
+  });
+  app.use((req, res, next) => {
+    if (req.path === WEBHOOK_PATH) return next();
+    return express.urlencoded({ extended: true, limit: '1mb' })(req, res, next);
+  });
 
   // 4b. Parse cookies. The refresh token arrives as an httpOnly cookie, which
   //     Express cannot read without this.
