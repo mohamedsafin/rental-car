@@ -136,15 +136,36 @@ one violation becoming two charges.
 same reason `customer_documents` is: a registration card carries the chassis
 number and the owner's details.
 
-### Phase 10 — output
+### Phase 10 — output (done)
 | Table | Purpose |
 | --- | --- |
 | `invoices` / `invoice_line_items` | Immutable once issued. Corrections are credit notes. |
+| `number_sequences` | Gapless counters for invoice and credit-note numbers. |
+| `coupons` / `coupon_redemptions` | Promo codes and one row per use (BRD 19). |
 | `notifications` | Outbound message log: channel, template, status, retries. |
+| `notification_templates` | The wording, editable by the client (BRD 44). |
 | `legal_documents` | Versioned T&C, privacy, rental/cancellation/refund policy. |
+| `booking_agreements` | Which version of which document a booking accepted. |
 
 Legal content is versioned because the BRD requires proving *which* terms a
-customer agreed to at booking time.
+customer agreed to at booking time. `booking_agreements` is that proof: one row
+per published document, written inside the booking transaction.
+
+An invoice stores the company's details, the customer's details and the tax
+rate as its OWN columns rather than joining to settings and users. That
+duplication is the point - joining would mean an invoice silently changes when
+the company moves office, and a tax document that changes after issue is a
+falsification rather than a stale read.
+
+`number_sequences` exists because `count() + 1` is not safe for invoice
+numbers: two invoices issued in the same moment under READ COMMITTED both count
+the same rows. An atomic `increment` on one row inside the writing transaction
+is unique, sequential and rolls back with a failed invoice - which a PostgreSQL
+SEQUENCE would not.
+
+`coupon_redemptions.bookingId` is UNIQUE, so a code cannot be applied twice to
+one booking, and the rows - not the `timesUsed` counter - are what the
+per-customer limit counts.
 
 ## The double-booking rule
 

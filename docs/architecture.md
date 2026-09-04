@@ -126,6 +126,19 @@ None of these are hardcoded. They live in the `system_settings` table and are
 edited from the Admin Dashboard. This is why `SystemSetting` is the very first
 model in the schema.
 
+### Abstractions chosen by the client
+
+| Concern | Interface | Development driver | Refuses in production |
+| --- | --- | --- | --- |
+| File storage | `StorageProvider` | `local` | no |
+| Payments | `PaymentProvider` | `mock` | yes |
+| Notifications | `NotificationProvider` | `log` | yes |
+
+The payment and notification drivers refuse to boot in production for the same
+reason: `mock` would "confirm" bookings nobody paid for, and `log` would report
+every message as sent while delivering none. Both failures look like the system
+working, which is what makes them worth refusing to start over.
+
 ### Demonstration data is quarantined
 
 The same rule is why there are two seed scripts, not one.

@@ -58,6 +58,13 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
 
   const [selected, setSelected] = useState<Record<string, number>>({});
 
+  // Two pieces of state, not one. `draft` is what the customer is typing;
+  // `applied` is what has been sent to the engine. Requoting on every keystroke
+  // would fire a request per character and flash a "not valid" error at
+  // somebody halfway through typing a perfectly good code.
+  const [couponDraft, setCouponDraft] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState('');
+
   const { data: serviceData } = useAdditionalServices();
 
   const services = useMemo(
@@ -78,6 +85,7 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
     returnAt: datesValid ? returnAt : null,
     services,
     pickupLocationId: initial?.pickupLocationId,
+    couponCode: appliedCoupon || undefined,
   });
 
   return (
@@ -162,7 +170,75 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
         </div>
       )}
 
-      {isError && (
+      {/*
+        Promo code. The input holds a CODE and nothing else - there is no field
+        anywhere in this component for a discount amount, because the amount is
+        the server's answer, not the customer's input.
+      */}
+      <div className="rounded-lg border border-ink-200 bg-white p-5">
+        <label htmlFor="couponCode" className="block text-sm font-semibold text-ink-900">
+          Promo code
+        </label>
+
+        {appliedCoupon && data?.quote.coupon ? (
+          <div className="mt-3 flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+            <div className="text-sm text-emerald-900">
+              <span className="font-mono font-semibold">{data.quote.coupon.code}</span> applied
+              <span className="block text-xs">
+                {data.quote.coupon.label} - saves {data.quote.currency}{' '}
+                {data.quote.coupon.discountAmount}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setAppliedCoupon('');
+                setCouponDraft('');
+              }}
+              className="text-xs font-medium text-emerald-900 underline"
+            >
+              Remove
+            </button>
+          </div>
+        ) : (
+          <div className="mt-3 flex gap-2">
+            <input
+              id="couponCode"
+              value={couponDraft}
+              onChange={(event) => setCouponDraft(event.target.value.toUpperCase())}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  setAppliedCoupon(couponDraft.trim());
+                }
+              }}
+              placeholder="Enter a code"
+              className="w-full rounded-md border border-ink-300 px-3 py-2 font-mono text-sm uppercase"
+            />
+            <button
+              type="button"
+              disabled={!couponDraft.trim()}
+              onClick={() => setAppliedCoupon(couponDraft.trim())}
+              className="shrink-0 rounded-md border border-ink-300 px-4 py-2 text-sm font-medium text-ink-700 hover:border-ink-400 disabled:opacity-40"
+            >
+              Apply
+            </button>
+          </div>
+        )}
+
+        {/*
+          A refused code returns 400 with a reason - "this code needs a 7-day
+          rental" - which is far more use than "invalid code". Shown here
+          rather than as a page-level error, next to the field that caused it.
+        */}
+        {appliedCoupon && isError && (
+          <p className="mt-2 text-sm text-red-700" role="alert">
+            {error.message}
+          </p>
+        )}
+      </div>
+
+      {isError && !appliedCoupon && (
         <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error.message}
         </div>
@@ -205,6 +281,9 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
                     returnAt,
                     services,
                     pickupLocationId: initial?.pickupLocationId,
+                    // Re-checked server-side here. A code that expired between
+                    // the quote and this click is refused at this point.
+                    couponCode: appliedCoupon || undefined,
                   },
                   {
                     onSuccess: (result) => navigate(`/account/bookings/${result.booking.id}`),

@@ -634,8 +634,148 @@ documents do: a Mulkiya carries the chassis number and the owner's details.
 There is no URL — only `GET /fleet/documents/:id/file`, which authenticates,
 audits, then streams.
 
-## Planned endpoints
+## Phase 10 endpoints
 
-| Phase | Prefix |
-| --- | --- |
-| 10 | `/coupons`, `/invoices`, `/notifications`, `/reports` |
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/invoices` | owner or STAFF | Invoices; a customer only ever sees their own |
+| GET | `/invoices/:id` | owner or STAFF | One invoice with its lines |
+| GET | `/invoices/:id/pdf` | owner or STAFF | The PDF (BRD 28) |
+| POST | `/invoices` | STAFF | Issue the invoice for a booking |
+| POST | `/invoices/:id/credit-note` | ADMIN | Correct an invoice - the only way |
+| GET | `/coupons` | STAFF | Promo codes (BRD 19) |
+| POST | `/coupons` | ADMIN | Create a code |
+| PATCH | `/coupons/:id` | ADMIN | Availability only - never the value |
+| DELETE | `/coupons/:id` | ADMIN | Withdraw (soft delete) |
+| GET | `/notifications` | STAFF | The outbound message log (BRD 42-44) |
+| POST | `/notifications/:id/retry` | STAFF | Re-send a failed message verbatim |
+| GET | `/notifications/templates` | STAFF | Message wording |
+| PATCH | `/notifications/templates/:id` | ADMIN | Reword, or switch a message off |
+| GET | `/reports/dashboard` | STAFF | This month at a glance |
+| GET | `/reports/revenue` | STAFF | Money received (BRD 48) |
+| GET | `/reports/bookings` | STAFF | Volumes and cancellations (BRD 49) |
+| GET | `/reports/fleet` | STAFF | Utilisation per vehicle (BRD 50) |
+| GET | `/reports/outstanding` | STAFF | What is owed, and what we hold |
+| GET | `/legal` | **public** | The live version of every document |
+| GET | `/legal/:type` | **public** | One published document |
+| GET | `/legal/versions` | ADMIN | Every version, drafts included |
+| POST | `/legal` | ADMIN | Draft a new version |
+| PATCH | `/legal/:id/draft` | ADMIN | Edit a draft; refused once published |
+| POST | `/legal/:id/publish` | ADMIN | Publish, superseding the previous version |
+
+`POST /pricing/quote` and `POST /bookings` also gained an optional
+`couponCode`. Both take a CODE and never an amount.
+
+## An invoice is a snapshot, not a report
+
+Every figure on an invoice - the lines, the company address, the VAT rate, the
+customer's name - is copied at the moment of issue and never read live again.
+
+If invoices were rendered from the live booking, raising a daily rate next
+month would silently rewrite last month's invoice. For a tax document that is
+not a bug, it is a falsification. The test suite asserts it directly: it issues
+an invoice, changes the vehicle's price, and checks the invoice did not move.
+
+There is no `PUT /invoices/:id` and no `DELETE`. A mistake is corrected by a
+**credit note** that references the original, copies every line negated, and
+marks the original CANCELLED without altering it. The pair sums to zero.
+
+```
+INV-2026-000042   AED  1,102.50
+CN-2026-000003    AED -1,102.50   corrects INV-2026-000042
+```
+
+Numbers come from a counter row incremented atomically inside the same
+transaction that writes the invoice. `count() + 1` would hand two simultaneous
+callers the same number under READ COMMITTED; a PostgreSQL SEQUENCE would leave
+gaps when a transaction rolls back, and gaps in an invoice series are what an
+auditor asks about.
+
+Where the client has not supplied a value - company name, address, TRN - the
+invoice prints a visible gap and carries a note saying it is **not** a valid
+UAE tax invoice. An invented TRN would be a false tax document.
+
+## Revenue is what was paid
+
+The reports never sum `bookings.totalAmount`. A booking is an agreement; a
+payment is money, and the two differ by every booking that was never paid for,
+lapsed on hold, or was cancelled after confirmation.
+
+```
+GET /reports/revenue    -> grossRevenue   from COMPLETED payments
+GET /reports/bookings   -> bookedValue    from bookings
+```
+
+They are separate fields with separate names for that reason. The acceptance
+test creates one paid booking and one unpaid one, then asserts `bookedValue >
+grossRevenue` - a report that summed the wrong table fails it.
+
+Security deposits are excluded from every revenue figure and reported
+separately. A refundable hold is the customer's money, not income. Payments
+with status REFUNDED or PARTIALLY_REFUNDED still count in gross, with the
+refund subtracted once - counting only SUCCESS would take the money off the
+books twice.
+
+Fleet utilisation is rented days over **available** days: workshop time comes
+out of the denominator, so a well-maintained car is not scored as idle.
+
+## Coupons: the server decides what a code is worth
+
+The browser sends a code. It never sends an amount, and there is no field
+anywhere that would accept one. `couponsService.evaluate()` is the only place a
+code becomes money, and it runs twice - once for the quote, again at checkout,
+so a code that expired in between is refused at checkout.
+
+Refusals carry a REASON the customer can act on:
+
+```
+"This code needs a rental of at least 7 days"
+"This code has been fully redeemed"
+"You have already used this code"
+```
+
+with one deliberate exception: an unknown code and a withdrawn code return the
+*same* message, so the endpoint cannot be used to guess which codes are live.
+
+A redemption row is written inside the booking transaction, so a code is never
+burnt by a booking that failed to save, and it is released again on
+cancellation - otherwise a customer who cancels has silently lost a single-use
+code they got no benefit from.
+
+## Notifications are logged before they are sent
+
+Order of operations, and the reason for it:
+
+```
+resolve template -> fill placeholders -> WRITE THE ROW -> hand to provider -> update the row
+```
+
+If the provider throws, times out, or the process dies mid-call, there is still
+a row saying what we meant to send and that it did not go. "Did the customer
+get the confirmation?" is a query, not a guess.
+
+`send()` never throws. A booking is confirmed whether or not the email left the
+building, and letting a mail outage roll back a paid booking would be a far
+worse failure than a missing email.
+
+SKIPPED and FAILED are different states: skipped means we decided not to send
+(no template, no address on file), failed means we tried and the provider
+refused.
+
+The provider itself is the client's choice (BRD 51). `NOTIFICATION_DRIVER=log`
+composes and records every message but sends nothing, and refuses to boot in
+production - where it would report messages as sent while delivering none.
+
+## Legal documents are versioned, never edited
+
+The question asked in a dispute is not "what do the terms say?" but "what did
+the terms say on the day they booked?". Publishing a new version supersedes the
+old one; `PATCH /legal/:id/draft` returns 409 once a version is published.
+
+Each booking writes a `booking_agreements` row per published document, pinning
+the exact version that was live. Nothing is seeded: terms, privacy and
+cancellation policy carry legal weight and are the client's own words.
+
+Every module in the BRD now has endpoints. Phase 11 hardens what exists -
+security review, OpenAPI, rate-limit verification, Docker - rather than adding
+new surface.

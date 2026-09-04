@@ -38,6 +38,8 @@ export function useCreateBooking() {
       dropoffLocationId?: string;
       services?: { serviceId: string; quantity: number }[];
       customerNotes?: string;
+      /** A CODE. Re-validated server-side at checkout. */
+      couponCode?: string;
     }
   >({
     mutationFn: bookingsService.create,

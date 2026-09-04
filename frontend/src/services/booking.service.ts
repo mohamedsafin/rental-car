@@ -36,6 +36,8 @@ export const bookingService = {
     returnAt: string;
     services?: { serviceId: string; quantity: number }[];
     pickupLocationId?: string;
+    /** A CODE, never an amount. The engine decides what it is worth. */
+    couponCode?: string;
   }) => postData<QuoteResponse>('/pricing/quote', body),
 
   listServices: () => getData<{ services: AdditionalService[] }>('/pricing/services'),

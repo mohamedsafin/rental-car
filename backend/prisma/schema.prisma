@@ -131,26 +131,32 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  refreshTokens         RefreshToken[]
-  auditLogs             AuditLog[]
-  bookings              Booking[]
-  customer              Customer?
-  reviewedDocuments     CustomerDocument[]     @relation("DocumentReviewer")
-  cancelledBookings     Booking[]              @relation("BookingCanceller")
-  bookingStatusChanges  BookingStatusHistory[] @relation("BookingStatusChanger")
-  initiatedRefunds      Refund[]               @relation("RefundInitiator")
-  depositTransactions   DepositTransaction[]   @relation("DepositTransactionCreator")
-  rentalsHandedOver     Rental[]               @relation("RentalHandover")
-  rentalsReceived       Rental[]               @relation("RentalReceipt")
-  inspectionsCarriedOut VehicleInspection[]    @relation("InspectionStaff")
-  extensionsReviewed    BookingExtension[]     @relation("ExtensionReviewer")
-  chargesCreated        AdditionalCharge[]     @relation("ChargeCreator")
-  damagesReported       Damage[]               @relation("DamageReporter")
-  damagesApproved       Damage[]               @relation("DamageApprover")
-  finesRecorded         TrafficFine[]          @relation("FineRecorder")
-  tollsRecorded         TollCharge[]           @relation("TollRecorder")
-  maintenanceCreated    MaintenanceRecord[]    @relation("MaintenanceCreator")
-  vehicleDocsUploaded   VehicleDocument[]      @relation("VehicleDocumentUploader")
+  refreshTokens          RefreshToken[]
+  auditLogs              AuditLog[]
+  bookings               Booking[]
+  customer               Customer?
+  reviewedDocuments      CustomerDocument[]     @relation("DocumentReviewer")
+  cancelledBookings      Booking[]              @relation("BookingCanceller")
+  bookingStatusChanges   BookingStatusHistory[] @relation("BookingStatusChanger")
+  initiatedRefunds       Refund[]               @relation("RefundInitiator")
+  depositTransactions    DepositTransaction[]   @relation("DepositTransactionCreator")
+  rentalsHandedOver      Rental[]               @relation("RentalHandover")
+  rentalsReceived        Rental[]               @relation("RentalReceipt")
+  inspectionsCarriedOut  VehicleInspection[]    @relation("InspectionStaff")
+  extensionsReviewed     BookingExtension[]     @relation("ExtensionReviewer")
+  chargesCreated         AdditionalCharge[]     @relation("ChargeCreator")
+  damagesReported        Damage[]               @relation("DamageReporter")
+  damagesApproved        Damage[]               @relation("DamageApprover")
+  finesRecorded          TrafficFine[]          @relation("FineRecorder")
+  tollsRecorded          TollCharge[]           @relation("TollRecorder")
+  maintenanceCreated     MaintenanceRecord[]    @relation("MaintenanceCreator")
+  vehicleDocsUploaded    VehicleDocument[]      @relation("VehicleDocumentUploader")
+  invoices               Invoice[]              @relation("InvoiceCustomer")
+  invoicesIssued         Invoice[]              @relation("InvoiceIssuer")
+  couponsCreated         Coupon[]               @relation("CouponCreator")
+  couponRedemptions      CouponRedemption[]     @relation("CouponRedeemer")
+  notifications          Notification[]         @relation("NotificationRecipient")
+  legalDocumentsAuthored LegalDocument[]        @relation("LegalDocumentAuthor")
 
   @@index([role])
   @@index([status])
@@ -294,6 +300,7 @@ model VehicleCategory {
 
   vehicles     Vehicle[]
   pricingRules PricingRule[]
+  coupons      Coupon[]
 
   @@index([isActive])
   @@map("vehicle_categories")
@@ -398,6 +405,7 @@ model Vehicle {
   maintenanceRecords MaintenanceRecord[]
   insuranceRecords   InsuranceRecord[]
   documents          VehicleDocument[]
+  coupons            Coupon[]
 
   // Indexes chosen for the queries the customer site actually runs: browse by
   // category, filter by status, and (Phase 4) the availability lookup.
@@ -561,6 +569,10 @@ model Booking {
   servicesSubtotal Decimal @default(0) @db.Decimal(10, 2)
   deliveryFee      Decimal @default(0) @db.Decimal(10, 2)
   discountAmount   Decimal @default(0) @db.Decimal(10, 2)
+  /// The promo code applied, as typed. A snapshot: the coupon may be renamed
+  /// or withdrawn later, and this booking's paperwork should still say what
+  /// the customer actually used.
+  couponCode       String?
   taxAmount        Decimal @default(0) @db.Decimal(10, 2)
   /// Rental total EXCLUDING the deposit.
   totalAmount      Decimal @db.Decimal(10, 2)
@@ -599,6 +611,9 @@ model Booking {
   damages           Damage[]
   trafficFines      TrafficFine[]
   tollCharges       TollCharge[]
+  invoices          Invoice[]
+  couponRedemption  CouponRedemption?
+  agreements        BookingAgreement[]
 
   @@index([vehicleId, pickupAt, returnAt])
   @@index([customerId])
@@ -1633,4 +1648,360 @@ model VehicleDocument {
   @@index([vehicleId])
   @@index([expiryDate])
   @@map("vehicle_documents")
+}
+
+// ===========================================================================
+// PHASE 10 - Output: invoices, notifications, coupons, legal documents
+// ===========================================================================
+
+/// Gapless counters for documents that must be numbered.
+///
+/// Booking numbers can get away with `count() + 1` because they are generated
+/// inside a SERIALIZABLE transaction. A tax invoice cannot: it needs a unique,
+/// never-reused number even when two staff issue invoices in the same
+/// millisecond under READ COMMITTED. An atomic `increment` on one row gives
+/// exactly that, and the row lock is held for microseconds.
+model NumberSequence {
+  /// e.g. "invoice", "credit_note".
+  key       String   @id
+  year      Int
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("number_sequences")
+}
+
+enum InvoiceType {
+  INVOICE
+  /// A correction. Invoices are never edited or deleted (BRD 28) - a mistake
+  /// is fixed by issuing a credit note that references the original.
+  CREDIT_NOTE
+}
+
+enum InvoiceStatus {
+  ISSUED
+  PAID
+  /// Fully reversed by a credit note.
+  CANCELLED
+}
+
+/// A tax invoice (BRD 28).
+///
+/// Everything here is a SNAPSHOT taken at the moment of issue: the company's
+/// details, the customer's details, the tax rate, every line. That is the whole
+/// point of the table. Regenerating an invoice from the live booking would mean
+/// last year's invoice silently changes when someone edits a price or the
+/// company address - which for a tax document is not a bug, it is a
+/// falsification.
+model Invoice {
+  id            String        @id @default(uuid()) @db.Uuid
+  invoiceNumber String        @unique
+  type          InvoiceType   @default(INVOICE)
+  status        InvoiceStatus @default(ISSUED)
+
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id])
+
+  customerId String @db.Uuid
+  customer   User   @relation("InvoiceCustomer", fields: [customerId], references: [id])
+
+  /// --- Seller snapshot. From settings AT ISSUE TIME, not read live. -------
+  /// Null where the client has not supplied the value yet; the invoice then
+  /// carries a visible gap rather than an invented company name or TRN.
+  companyName    String?
+  companyAddress String?
+  companyPhone   String?
+  companyEmail   String?
+  /// UAE Tax Registration Number. Legally required on a tax invoice, and
+  /// exactly the sort of value BRD 51 says comes from the client.
+  companyTrn     String?
+
+  /// --- Buyer snapshot ----------------------------------------------------
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  customerAddress String?
+
+  /// --- Money. All snapshotted. -------------------------------------------
+  subtotal      Decimal  @db.Decimal(10, 2)
+  discountTotal Decimal  @default(0) @db.Decimal(10, 2)
+  taxableAmount Decimal  @db.Decimal(10, 2)
+  /// The rate actually applied, recorded as a number so the invoice can state
+  /// it. Null means VAT was not configured when this was issued.
+  taxPercentage Decimal? @db.Decimal(5, 2)
+  taxTotal      Decimal  @default(0) @db.Decimal(10, 2)
+  total         Decimal  @db.Decimal(10, 2)
+  currency      String   @default("AED")
+
+  /// Credit notes point at what they correct.
+  correctsId String?   @db.Uuid
+  corrects   Invoice?  @relation("InvoiceCorrection", fields: [correctsId], references: [id])
+  creditedBy Invoice[] @relation("InvoiceCorrection")
+
+  reason String?
+  notes  String?
+
+  issuedAt   DateTime @default(now())
+  issuedById String?  @db.Uuid
+  issuedBy   User?    @relation("InvoiceIssuer", fields: [issuedById], references: [id], onDelete: SetNull)
+
+  lineItems InvoiceLineItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([customerId])
+  @@index([issuedAt])
+  @@map("invoices")
+}
+
+/// One line on an invoice. Written once, with the invoice, and never updated.
+model InvoiceLineItem {
+  id        String  @id @default(uuid()) @db.Uuid
+  invoiceId String  @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  sortOrder   Int     @default(0)
+  description String
+  detail      String?
+
+  /// Decimal, not Int: a per-day service on a 1.5-day rental is a real case.
+  quantity  Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice Decimal @db.Decimal(10, 2)
+  lineTotal Decimal @db.Decimal(10, 2)
+
+  /// Deposits and other non-supply lines sit outside the tax base.
+  isTaxable Boolean @default(true)
+
+  @@index([invoiceId, sortOrder])
+  @@map("invoice_line_items")
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+/// A promotional code (BRD 19).
+///
+/// Every constraint lives here rather than in a marketing spreadsheet, because
+/// the backend has to be able to refuse a code on its own: the browser sending
+/// "discount: 500" is a suggestion, not a discount.
+model Coupon {
+  id          String  @id @default(uuid()) @db.Uuid
+  /// Stored uppercase and matched uppercase, so SUMMER25 and summer25 are the
+  /// same code rather than two.
+  code        String  @unique
+  description String?
+
+  discountType DiscountType
+  /// A percentage (0-100) or a fixed amount, depending on discountType.
+  value        Decimal      @db.Decimal(10, 2)
+  /// Caps a percentage discount. "20% off, up to AED 200" is a normal offer,
+  /// and without this a 20% code on a Porsche is an expensive surprise.
+  maxDiscount  Decimal?     @db.Decimal(10, 2)
+
+  /// Qualification rules. All optional; all enforced server-side.
+  minRentalAmount Decimal? @db.Decimal(10, 2)
+  minRentalDays   Int?
+
+  validFrom  DateTime
+  validUntil DateTime
+
+  /// Null = unlimited.
+  usageLimit       Int?
+  perCustomerLimit Int?
+  /// Denormalised counter, incremented in the same transaction as the
+  /// redemption row. Cheap to read on the admin list; the redemption rows
+  /// remain the source of truth.
+  timesUsed        Int  @default(0)
+
+  /// Scope. Both null = the whole fleet.
+  categoryId String?          @db.Uuid
+  category   VehicleCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  vehicleId  String?          @db.Uuid
+  vehicle    Vehicle?         @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+
+  isActive Boolean @default(true)
+
+  createdById String? @db.Uuid
+  createdBy   User?   @relation("CouponCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  redemptions CouponRedemption[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isActive, validFrom, validUntil])
+  @@map("coupons")
+}
+
+/// One use of a coupon on one booking.
+///
+/// The UNIQUE on bookingId is what stops a code being applied twice to the
+/// same booking, and the rows are what the per-customer limit counts. The
+/// counter on Coupon is a convenience; this table is the record.
+model CouponRedemption {
+  id       String @id @default(uuid()) @db.Uuid
+  couponId String @db.Uuid
+  coupon   Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  bookingId String  @unique @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  customerId String @db.Uuid
+  customer   User   @relation("CouponRedeemer", fields: [customerId], references: [id])
+
+  /// What the code was actually worth on this booking, in money.
+  discountAmount Decimal @db.Decimal(10, 2)
+  /// The code as typed, kept even if the coupon is later renamed or deleted.
+  codeUsed       String
+
+  redeemedAt DateTime @default(now())
+
+  @@index([couponId, customerId])
+  @@map("coupon_redemptions")
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  /// Deliberately not sent - no provider configured, or no address on file.
+  /// Distinct from FAILED, which means we tried and it did not work.
+  SKIPPED
+}
+
+/// The outbound message log (BRD 42-44).
+///
+/// Every notification the system decides to send is written here FIRST, then
+/// handed to a provider. That ordering matters: if the provider call throws,
+/// there is still a row saying what we meant to send and why it did not go.
+/// "Did the customer get the confirmation?" is then a query, not a guess.
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+
+  channel     NotificationChannel
+  /// Which template produced this, e.g. "booking.confirmed".
+  templateKey String
+
+  recipientId String? @db.Uuid
+  recipient   User?   @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
+  /// The address actually used, snapshotted - the customer may change their
+  /// email later, and the log should still say where this one went.
+  toAddress   String
+
+  subject String?
+  body    String
+
+  status      NotificationStatus @default(PENDING)
+  attempts    Int                @default(0)
+  /// Which driver handled it, e.g. "log", "smtp". Null until an attempt.
+  provider    String?
+  /// Provider's own id, for chasing a message up with them.
+  providerRef String?
+  lastError   String?
+  sentAt      DateTime?
+
+  /// What this is about, so a booking's messages can be listed.
+  relatedType String?
+  relatedId   String? @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([recipientId, createdAt])
+  @@index([status])
+  @@index([relatedType, relatedId])
+  @@map("notifications")
+}
+
+/// The text of one notification, editable by the client (BRD 44).
+///
+/// Seeded with working English so the system is not silent out of the box, but
+/// stored in the database rather than in code because wording, tone and
+/// language are the client's, and changing "Dear customer" should not require
+/// a deployment.
+model NotificationTemplate {
+  id          String              @id @default(uuid()) @db.Uuid
+  key         String
+  channel     NotificationChannel
+  /// Unused for SMS and WhatsApp.
+  subject     String?
+  /// Supports {{placeholders}} filled from the trigger's data.
+  body        String
+  description String?
+  isActive    Boolean             @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One template per key per channel: the same event can legitimately have
+  /// both an email and an SMS version.
+  @@unique([key, channel])
+  @@map("notification_templates")
+}
+
+enum LegalDocumentType {
+  TERMS_AND_CONDITIONS
+  PRIVACY_POLICY
+  RENTAL_AGREEMENT
+  CANCELLATION_POLICY
+  REFUND_POLICY
+}
+
+/// Versioned legal text (BRD 45-47).
+///
+/// Versioned rather than editable in place, because the question that gets
+/// asked in a dispute is not "what do the terms say?" but "what did the terms
+/// say on the day they booked?". Publishing a new version supersedes the old
+/// one; it never overwrites it.
+model LegalDocument {
+  id      String            @id @default(uuid()) @db.Uuid
+  type    LegalDocumentType
+  version Int
+  title   String
+  /// Markdown. Rendered by the frontend, so the client can format without HTML.
+  content String
+
+  isPublished   Boolean   @default(false)
+  publishedAt   DateTime?
+  effectiveFrom DateTime?
+
+  createdById String? @db.Uuid
+  createdBy   User?   @relation("LegalDocumentAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  agreements BookingAgreement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type, version])
+  @@index([type, isPublished])
+  @@map("legal_documents")
+}
+
+/// Proof of which version of which document a customer agreed to, and when.
+model BookingAgreement {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  legalDocumentId String        @db.Uuid
+  legalDocument   LegalDocument @relation(fields: [legalDocumentId], references: [id])
+
+  agreedAt  DateTime @default(now())
+  ipAddress String?
+
+  @@unique([bookingId, legalDocumentId])
+  @@map("booking_agreements")
 }

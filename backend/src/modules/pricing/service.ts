@@ -15,7 +15,7 @@
  *   2. + surcharges (weekend / seasonal rules)
  *   3. + services   (per-booking or per-day)
  *   4. + delivery
- *   5. - discounts  (long-term)
+ *   5. - discounts  (long-term rule, then promo code)
  *   6. = taxable base
  *   7. + VAT on that base
  *   8. deposit reported SEPARATELY - it is held, not earned
@@ -36,6 +36,7 @@ import {
   money,
   selectBestRate,
 } from './calculator';
+import { couponsService } from '../coupons/service';
 import type { PriceQuote, QuoteLineItem, QuoteRequest } from './types';
 
 const DAY_COUNTING_RULE =
@@ -215,7 +216,58 @@ export const pricingService = {
       }
     }
 
+    // --- 5b. Promo code (BRD 19) -----------------------------------------
+    //
+    // Applied AFTER the long-term rule and to the same base - the rental
+    // itself, not services or delivery. A "20% off" code is understood to be
+    // about the car; discounting a child seat and an airport delivery with it
+    // would be a different, more expensive offer than the client agreed.
+    //
+    // The two discounts stack. They are capped jointly below so the taxable
+    // base can reach zero but never go negative.
+    let coupon: PriceQuote['coupon'];
+
+    if (request.couponCode?.trim()) {
+      const discountableAfterRule = vehicleSubtotal.sub(discountAmount);
+
+      const evaluated = await couponsService.evaluate({
+        code: request.couponCode,
+        // An anonymous quote cannot be checked against a per-customer limit.
+        // It is re-evaluated with the real customer at booking time, which is
+        // the point where consuming a use actually matters.
+        customerId: request.customerId ?? '00000000-0000-0000-0000-000000000000',
+        vehicleId: vehicle.id,
+        categoryId: vehicle.categoryId,
+        rentalDays,
+        discountableAmount: discountableAfterRule,
+        qualifyingAmount: vehicleSubtotal.add(servicesSubtotal).add(deliveryFee),
+      });
+
+      if (!evaluated.discountAmount.isZero()) {
+        discountAmount = discountAmount.add(evaluated.discountAmount);
+        lineItems.push({
+          key: `coupon:${evaluated.coupon.code}`,
+          label: evaluated.label,
+          amount: `-${money(evaluated.discountAmount)}`,
+          detail: `Promo code ${evaluated.coupon.code}`,
+        });
+      }
+
+      coupon = {
+        code: evaluated.coupon.code,
+        label: evaluated.label,
+        discountAmount: money(evaluated.discountAmount),
+      };
+    }
+
     // --- 6 and 7. Tax ----------------------------------------------------
+    const grossBeforeDiscount = vehicleSubtotal.add(servicesSubtotal).add(deliveryFee);
+    if (discountAmount.greaterThan(grossBeforeDiscount)) {
+      // Reachable when a long-term rule and a fixed-amount code stack past the
+      // bill. Free is the floor; a negative invoice is not a thing.
+      discountAmount = grossBeforeDiscount;
+    }
+
     const taxableAmount = vehicleSubtotal
       .add(servicesSubtotal)
       .add(deliveryFee)
@@ -261,6 +313,7 @@ export const pricingService = {
         subtotal: money(block.subtotal),
       })),
       lineItems,
+      coupon,
       totals: {
         vehicleSubtotal: money(vehicleSubtotal),
         servicesSubtotal: money(servicesSubtotal),

@@ -8,6 +8,7 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
+import { optionalAuthenticate } from '../../middleware/authenticate';
 import { validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { sendSuccess } from '../../utils/apiResponse';
@@ -37,6 +38,9 @@ const quoteSchema = z.object({
   pickupLocationId: z.string().uuid().optional(),
   dropoffLocationId: z.string().uuid().optional(),
 
+  /// A promo CODE, never an amount. The engine decides what it is worth.
+  couponCode: z.string().min(1).max(40).trim().optional(),
+
   // NOTE: there is deliberately no `total` field. If a client sends one,
   // `validate` strips it before this schema is even applied, and the engine
   // recalculates from scratch. A price the browser controls is not a price.
@@ -53,6 +57,9 @@ const router = Router();
  */
 router.post(
   '/quote',
+  // Optional, not required: BRD 14 has the customer reviewing the price before
+  // logging in. Signing in only adds the per-customer coupon check.
+  optionalAuthenticate,
   validate({ body: quoteSchema }),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof quoteSchema>;
@@ -64,6 +71,11 @@ router.post(
       services: input.services,
       pickupLocationId: input.pickupLocationId,
       dropoffLocationId: input.dropoffLocationId,
+      couponCode: input.couponCode,
+      // Present when the quote is requested by a signed-in customer, so a
+      // per-customer usage limit is checked here too rather than only at
+      // checkout. optionalAuthenticate leaves this undefined for a guest.
+      customerId: req.user?.id,
     });
 
     const availability = await availabilityService.checkVehicle(input.vehicleId, {

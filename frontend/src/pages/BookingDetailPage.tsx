@@ -12,6 +12,7 @@ import { Link, useParams } from 'react-router-dom';
 import BookingStatusBadge from '../components/BookingStatusBadge';
 import PaymentPanel from '../components/PaymentPanel';
 import DepositPanel from '../components/DepositPanel';
+import InvoicePanel from '../components/InvoicePanel';
 import ExtensionRequest from '../components/ExtensionRequest';
 import { useBooking, useCancelBooking } from '../features/bookings/useBookings';
 import { BOOKING_STATUS_HELP } from '../types/booking';
@@ -180,6 +181,8 @@ export default function BookingDetailPage() {
       <PaymentPanel booking={booking} />
 
       <DepositPanel bookingId={booking.id} />
+
+      <InvoicePanel bookingId={booking.id} />
 
       {booking.cancellation && (
         <section className="rounded-lg border border-red-200 bg-red-50 p-5">

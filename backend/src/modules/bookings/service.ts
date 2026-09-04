@@ -37,6 +37,9 @@ import { pricingService } from '../pricing/service';
 import { SettingKey, settingsService } from '../settings/service';
 import { customersService } from '../customers/service';
 import { canTransition, CUSTOMER_CANCELLABLE, PRE_PICKUP } from './statusMachine';
+import { couponsService } from '../coupons/service';
+import { legalService } from '../legal/service';
+import { fireAndForget, notify } from '../notifications/triggers';
 import { generateBookingNumber } from './reference';
 import { bookingInclude, toPublicBooking, type PublicBooking } from './types';
 import type { CreateBookingInput } from './validation';
@@ -47,6 +50,29 @@ export interface BookingActor {
   role: 'CUSTOMER' | 'ADMIN' | 'STAFF';
   ipAddress?: string;
   userAgent?: string;
+}
+
+/**
+ * PostgreSQL raises 40001 when a SERIALIZABLE transaction is aborted because
+ * another one it depended on committed first.
+ *
+ * This is not a fault: it is the isolation level doing its job, and the
+ * documented response is to run the transaction again. Booking creation reads
+ * a handful of shared rows - the published terms, a coupon - so two customers
+ * checking out at the same instant can trip it even when they want different
+ * cars.
+ *
+ * Retried rather than reported. If the two really did want the same vehicle,
+ * the retry re-runs the availability check, finds the now-committed booking,
+ * and returns a clean 409 saying so.
+ */
+function isSerializationFailure(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === 'P2034' ||
+      error.meta?.code === '40001' ||
+      String(error.message).includes('could not serialize access'))
+  );
 }
 
 /** PostgreSQL raises 23P01 when an exclusion constraint rejects a row. */
@@ -93,6 +119,11 @@ export const bookingsService = {
       services: input.services,
       pickupLocationId: input.pickupLocationId,
       dropoffLocationId: input.dropoffLocationId,
+      couponCode: input.couponCode,
+      // The REAL customer this time, not the anonymous placeholder a public
+      // quote uses - so a per-customer usage limit is enforced here, at the
+      // point a use is actually consumed.
+      customerId: actor.id,
     });
 
     const customer = await customersService.getOrCreateForUser(actor.id);
@@ -107,7 +138,8 @@ export const bookingsService = {
     const bufferHours = await settingsService.getNumberOr(SettingKey.TURNAROUND_BUFFER_HOURS, 0);
 
     try {
-      const booking = await prisma.$transaction(
+      const booking = await withSerializableRetry(() =>
+        prisma.$transaction(
         async (tx) => {
           // Re-check INSIDE the transaction. The pre-check above happened
           // before we held any locks; the world may have changed since.
@@ -142,6 +174,7 @@ export const bookingsService = {
               servicesSubtotal: new Prisma.Decimal(quote.totals.servicesSubtotal),
               deliveryFee: new Prisma.Decimal(quote.totals.deliveryFee),
               discountAmount: new Prisma.Decimal(quote.totals.discountAmount),
+              couponCode: quote.coupon?.code ?? null,
               taxAmount: new Prisma.Decimal(quote.totals.taxAmount),
               totalAmount: new Prisma.Decimal(quote.totals.rentalTotal),
               securityDeposit: new Prisma.Decimal(quote.totals.securityDeposit),
@@ -177,6 +210,27 @@ export const bookingsService = {
             }
           }
 
+          // Consume the code INSIDE the transaction. If anything after this
+          // throws, the redemption rolls back with the booking - a code must
+          // never be burnt by a booking that did not happen.
+          if (quote.coupon) {
+            const applied = await tx.coupon.findUniqueOrThrow({
+              where: { code: quote.coupon.code },
+            });
+            await couponsService.redeem(tx, {
+              couponId: applied.id,
+              bookingId: created.id,
+              customerId: actor.id,
+              discountAmount: new Prisma.Decimal(quote.coupon.discountAmount),
+              codeUsed: quote.coupon.code,
+            });
+          }
+
+          // Pin which version of the terms was live at this moment. In a
+          // dispute the question is "what did the terms say on the day they
+          // booked?", and this row is the answer.
+          await legalService.recordAgreement(tx, created.id, actor.ipAddress);
+
           await recordStatusChange(tx, created.id, null, initialStatus, actor.id, 'Booking created');
 
           return tx.booking.findUniqueOrThrow({
@@ -190,7 +244,10 @@ export const bookingsService = {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           timeout: 15_000,
         },
+        ),
       );
+
+      fireAndForget(notify.bookingCreated(booking.id, initialStatus === 'DOCUMENT_VERIFICATION'));
 
       await auditService.record({
         action: 'booking.created',
@@ -370,6 +427,11 @@ export const bookingsService = {
         },
       });
 
+      // Give the promo code back. Without this a customer who cancels has
+      // silently burnt a single-use code they got no benefit from, and the
+      // "fully redeemed" message they hit next time would be wrong.
+      await couponsService.release(tx, bookingId);
+
       await recordStatusChange(
         tx,
         bookingId,
@@ -381,6 +443,14 @@ export const bookingsService = {
 
       return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: bookingInclude });
     });
+
+    fireAndForget(
+      notify.bookingCancelled(
+        bookingId,
+        `${existing.currency} ${cancellationFee.toFixed(2)}`,
+        `${existing.currency} ${(refundDue.isNegative() ? new Prisma.Decimal(0) : refundDue).toFixed(2)}`,
+      ),
+    );
 
     await auditService.record({
       action: 'booking.cancelled',
@@ -534,3 +604,32 @@ export const bookingsService = {
     return expired.length;
   },
 };
+
+/**
+ * Run a serializable transaction, retrying if PostgreSQL aborts it for
+ * serialization reasons.
+ *
+ * Three attempts with a short jittered pause. Jittered because two clients
+ * that collided once will collide again if they both retry on the same
+ * schedule - the whole point is to separate them in time.
+ *
+ * If it still fails, the error propagates: at that point something other than
+ * ordinary contention is happening, and pretending otherwise would hide it.
+ */
+async function withSerializableRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      if (!isSerializationFailure(error) || attempt === attempts) throw error;
+
+      lastError = error;
+      logger.warn('Serialization conflict, retrying the booking transaction', { attempt });
+      await new Promise((resolve) => setTimeout(resolve, 25 * attempt + Math.random() * 25));
+    }
+  }
+
+  throw lastError;
+}

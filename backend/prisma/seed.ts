@@ -18,6 +18,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
+import { seedNotificationTemplates } from './notificationTemplates';
 
 dotenv.config();
 
@@ -69,6 +70,11 @@ async function main(): Promise<void> {
     { key: 'company.email', value: '', valueType: 'STRING', category: 'COMPANY', label: 'Contact email' },
     { key: 'company.phone', value: '', valueType: 'STRING', category: 'COMPANY', label: 'Contact phone' },
     { key: 'company.whatsapp', value: '', valueType: 'STRING', category: 'COMPANY', label: 'WhatsApp number' },
+    { key: 'company.address', value: '', valueType: 'STRING', category: 'COMPANY', label: 'Registered address', description: 'Printed on every invoice.' },
+    // BLANK, and it must stay blank until the client supplies it. An invoice
+    // carrying an invented Tax Registration Number is not a formatting error,
+    // it is a false tax document.
+    { key: 'company.trn', value: '', valueType: 'STRING', category: 'COMPANY', label: 'Tax Registration Number (TRN)', description: 'Legally required on a UAE tax invoice. Invoices warn while this is empty.' },
     { key: 'company.operating_emirates', value: '[]', valueType: 'JSON', category: 'COMPANY', label: 'Operating Emirates' },
 
     { key: 'pricing.currency', value: 'AED', valueType: 'STRING', category: 'PRICING', label: 'Currency', description: 'BRD 49 fixes the primary currency as AED.' },
@@ -209,6 +215,21 @@ async function main(): Promise<void> {
   const ruleCount = await prisma.pricingRule.count();
   if (ruleCount === 0) {
     console.log('No pricing rules seeded - weekend/seasonal/discount rates are yours to define (BRD 16).');
+  }
+
+  // Message wording, unlike prices, ships with a working default: a system
+  // that silently sends nothing looks like it works. Existing templates are
+  // never overwritten, so a re-run cannot undo the client's edits.
+  const templates = await seedNotificationTemplates(prisma);
+  console.log(`Seeded ${templates} notification templates (existing ones left untouched).`);
+
+  // No legal documents are seeded. Terms, privacy and cancellation policy are
+  // the client's words and carry legal weight (BRD 45-47); an invented
+  // cancellation clause would be worse than an empty page, because an empty
+  // page gets filled in and an invented one gets relied upon.
+  const legalCount = await prisma.legalDocument.count();
+  if (legalCount === 0) {
+    console.log(`No legal documents seeded - terms, privacy and policies are the client's to write (BRD 45-47).`);
   }
 }
 

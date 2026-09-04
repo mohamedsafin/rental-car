@@ -38,6 +38,7 @@ export function useQuote(params: {
   returnAt: string | null;
   services?: { serviceId: string; quantity: number }[];
   pickupLocationId?: string;
+  couponCode?: string;
 }) {
   return useQuery<QuoteResponse, NormalisedApiError>({
     queryKey: ['quote', params],
@@ -48,6 +49,7 @@ export function useQuote(params: {
         returnAt: params.returnAt as string,
         services: params.services,
         pickupLocationId: params.pickupLocationId,
+        couponCode: params.couponCode,
       }),
     enabled: Boolean(params.vehicleId && params.pickupAt && params.returnAt),
     // A quote depends on live availability, so never serve a stale one.

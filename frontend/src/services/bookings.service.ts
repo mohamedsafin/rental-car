@@ -19,6 +19,8 @@ export const bookingsService = {
     dropoffLocationId?: string;
     services?: { serviceId: string; quantity: number }[];
     customerNotes?: string;
+    /** A CODE. Re-validated server-side at checkout. */
+    couponCode?: string;
   }) => postData<{ booking: Booking }>('/bookings', input),
 
   myBookings: (params: { page?: number; limit?: number; scope?: string }) =>

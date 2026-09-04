@@ -47,6 +47,16 @@ export interface PriceQuote {
     totalPayable: string;
   };
   /** Things the client has not configured yet, e.g. VAT. Shown, not hidden. */
+  /**
+   * The code that was accepted, echoed back so the UI can show it as applied
+   * rather than inferring success from the total having moved.
+   */
+  coupon?: {
+    code: string;
+    label: string;
+    discountAmount: string;
+  };
+
   warnings: string[];
 }
 

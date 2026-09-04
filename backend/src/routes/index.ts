@@ -27,6 +27,11 @@ import { pricingRoutes } from '../modules/pricing/routes';
 import { pricingAdminRoutes } from '../modules/pricing/adminRoutes';
 import { damageRoutes } from '../modules/damages/routes';
 import { fleetRoutes } from '../modules/fleet/routes';
+import { couponRoutes } from '../modules/coupons/routes';
+import { invoiceRoutes } from '../modules/invoices/routes';
+import { notificationRoutes } from '../modules/notifications/routes';
+import { reportRoutes } from '../modules/reports/routes';
+import { legalRoutes } from '../modules/legal/routes';
 
 const router = Router();
 
@@ -58,10 +63,12 @@ router.use('/admin/pricing', pricingAdminRoutes);
 router.use('/damages', damageRoutes);
 router.use('/fleet', fleetRoutes);
 
-// --- Mounted in later phases -------------------------------------------
-// router.use('/coupons', couponRoutes);         // Phase 10
-// router.use('/invoices', invoiceRoutes);       // Phase 10
-// router.use('/notifications', notificationRoutes); // Phase 10
-// router.use('/reports', reportRoutes);         // Phase 10
+// Phase 10 - the outputs. /legal is partly public: terms a customer must sign
+// in to read are terms they cannot read before deciding to sign up.
+router.use('/coupons', couponRoutes);
+router.use('/invoices', invoiceRoutes);
+router.use('/notifications', notificationRoutes);
+router.use('/reports', reportRoutes);
+router.use('/legal', legalRoutes);
 
 export const apiV1Router = router;

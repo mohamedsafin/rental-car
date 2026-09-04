@@ -27,6 +27,11 @@ import MaintenancePage from '../pages/MaintenancePage';
 import DamagesPage from '../pages/DamagesPage';
 import FinesPage from '../pages/FinesPage';
 import ExpiryPage from '../pages/ExpiryPage';
+import ReportsPage from '../pages/ReportsPage';
+import CouponsPage from '../pages/CouponsPage';
+import InvoicesPage from '../pages/InvoicesPage';
+import NotificationsPage from '../pages/NotificationsPage';
+import LegalPage from '../pages/LegalPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 export default function AppRoutes() {
@@ -51,7 +56,12 @@ export default function AppRoutes() {
           <Route path="/insurance" element={<ExpiryPage />} />
           <Route path="/damages" element={<DamagesPage />} />
           <Route path="/fines" element={<FinesPage />} />
-          {/* Phase 10+: /reports, /settings, /invoices */}
+          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/coupons" element={<CouponsPage />} />
+          <Route path="/invoices" element={<InvoicesPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/legal" element={<LegalPage />} />
+          {/* Phase 11: /settings, /audit-logs */}
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>

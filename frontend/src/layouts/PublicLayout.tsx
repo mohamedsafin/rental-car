@@ -154,10 +154,33 @@ export default function PublicLayout() {
         </div>
 
         <div className="border-t border-ink-100">
-          <p className="mx-auto max-w-6xl px-4 py-4 text-xs text-ink-400">
-            Development build. Terms, privacy and cancellation policy pages are added in a later
-            phase, along with the client's real company details.
-          </p>
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4">
+            <p className="text-xs text-ink-400">
+              Development build. The company's real details come from Settings.
+            </p>
+            <ul className="flex flex-wrap gap-4 text-xs text-ink-500">
+              <li>
+                <Link to="/legal/terms" className="hover:text-ink-900">
+                  Terms
+                </Link>
+              </li>
+              <li>
+                <Link to="/legal/privacy" className="hover:text-ink-900">
+                  Privacy
+                </Link>
+              </li>
+              <li>
+                <Link to="/legal/cancellation" className="hover:text-ink-900">
+                  Cancellation policy
+                </Link>
+              </li>
+              <li>
+                <Link to="/legal/refunds" className="hover:text-ink-900">
+                  Refunds
+                </Link>
+              </li>
+            </ul>
+          </div>
         </div>
       </footer>
     </div>

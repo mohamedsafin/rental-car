@@ -9,7 +9,7 @@ document requirements — are **configurable settings, not hardcoded numbers**.
 
 ## Status
 
-**Phase 9 complete — Charges & fleet administration.** See
+**Phase 10 complete — Invoices, notifications, coupons and reports.** See
 [docs/development-plan.md](docs/development-plan.md) for the roadmap.
 
 Done so far: monorepo foundation and health checks; JWT auth with
@@ -30,7 +30,11 @@ apart, and only the approved one ever charged), traffic fines and Salik tolls
 recorded against the rental they fell on, maintenance windows that take a
 vehicle off the calendar **for those dates only**, insurance policy history,
 privately stored vehicle documents, and a configurable expiry-reminder
-dashboard.
+dashboard; and the outputs — immutable PDF tax invoices corrected only by
+credit notes, promo codes priced entirely server-side, an outbound message log
+written before anything is sent, versioned legal documents pinned to each
+booking, and management reports where revenue means what was **paid**, not what
+was booked.
 
 ## Stack
 

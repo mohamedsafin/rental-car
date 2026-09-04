@@ -69,6 +69,7 @@ export interface PriceQuote {
     vehicleSubtotal: string;
     servicesSubtotal: string;
     deliveryFee: string;
+    /** Every discount combined - long-term rule plus promo code. */
     discountAmount: string;
     /** Base the tax is applied to: rental + services + delivery - discount. */
     taxableAmount: string;
@@ -79,6 +80,16 @@ export interface PriceQuote {
     securityDeposit: string;
     /** What actually leaves the customer's card today. */
     totalPayable: string;
+  };
+
+  /**
+   * The promo code applied, if any. Echoed back so the UI can show it as
+   * accepted rather than inferring success from the total having changed.
+   */
+  coupon?: {
+    code: string;
+    label: string;
+    discountAmount: string;
   };
 
   /**
@@ -100,6 +111,17 @@ export interface QuoteRequest {
   services?: SelectedService[];
   pickupLocationId?: string;
   dropoffLocationId?: string;
+  /**
+   * A promo code, as typed. The engine decides what it is worth; a caller can
+   * never send an amount.
+   */
+  couponCode?: string;
+  /**
+   * Who is asking. Needed only to enforce a coupon's per-customer limit, and
+   * absent for an anonymous quote - in which case a limited code is priced
+   * optimistically here and re-checked, against the real customer, at booking.
+   */
+  customerId?: string;
 }
 
 /** Internal accumulator; converted to strings only at the very end. */

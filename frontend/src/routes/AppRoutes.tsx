@@ -19,6 +19,7 @@ import DocumentsPage from '../pages/DocumentsPage';
 import MyBookingsPage from '../pages/MyBookingsPage';
 import BookingDetailPage from '../pages/BookingDetailPage';
 import NotFoundPage from '../pages/NotFoundPage';
+import LegalPage from '../pages/LegalPage';
 
 export default function AppRoutes() {
   return (
@@ -31,6 +32,9 @@ export default function AppRoutes() {
         <Route path="/cars/:id" element={<CarDetailsPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        {/* Public and unauthenticated: terms you must sign in to read are
+            terms you cannot read before deciding whether to sign up. */}
+        <Route path="/legal/:slug" element={<LegalPage />} />
 
         {/* Signed-in customers only */}
         <Route element={<ProtectedRoute />}>

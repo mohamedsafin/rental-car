@@ -45,7 +45,8 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: 'Deposits', phase: 'see a booking' },
       { label: 'Damages', to: '/damages' },
       { label: 'Fines & tolls', to: '/fines' },
-      { label: 'Invoices', phase: 'Phase 10' },
+      { label: 'Invoices', to: '/invoices' },
+      { label: 'Promo codes', to: '/coupons', roles: ['ADMIN'] },
     ],
   },
   {
@@ -60,7 +61,9 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { label: 'Pricing', to: '/pricing' },
       { label: 'Locations', to: '/locations' },
-      { label: 'Reports', phase: 'Phase 10' },
+      { label: 'Reports', to: '/reports' },
+      { label: 'Notifications', to: '/notifications' },
+      { label: 'Legal documents', to: '/legal', roles: ['ADMIN'] },
       { label: 'Settings', phase: 'Phase 10' },
       { label: 'Audit logs', phase: 'Phase 11' },
     ],

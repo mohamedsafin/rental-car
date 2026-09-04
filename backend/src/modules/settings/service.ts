@@ -110,4 +110,12 @@ export const SettingKey = {
   CANCELLATION_FEE_PERCENTAGE: 'cancellation.fee_percentage',
   /// JSON array of day offsets, e.g. [30, 15, 7, 0] (BRD 41).
   EXPIRY_REMINDER_DAYS: 'fleet.expiry_reminder_days',
+
+  /// Printed on every invoice. All client-supplied; blank until they are.
+  COMPANY_NAME: 'company.name',
+  COMPANY_ADDRESS: 'company.address',
+  COMPANY_PHONE: 'company.phone',
+  COMPANY_EMAIL: 'company.email',
+  /// UAE Tax Registration Number. Legally required on a tax invoice.
+  COMPANY_TRN: 'company.trn',
 } as const;

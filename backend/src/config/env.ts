@@ -79,6 +79,23 @@ const envSchema = z.object({
   // Where the provider returns the customer after payment.
   PAYMENT_RETURN_URL: z.string().url().default('http://localhost:5173/account/bookings'),
 
+  // Notifications. The provider is the client's choice (BRD 51); `log` is a
+  // development driver that composes and records messages without sending
+  // them, and refuses to run in production.
+  NOTIFICATION_DRIVER: z.enum(['log', 'smtp', 'sendgrid', 'twilio']).default('log'),
+  // Empty is treated as "not set". A .env with `NOTIFICATION_FROM_EMAIL=`
+  // sitting there waiting to be filled in must not stop the server booting.
+  NOTIFICATION_FROM_EMAIL: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().email().optional(),
+  ),
+  NOTIFICATION_FROM_NAME: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().optional(),
+  ),
+  // Links in outbound messages point back at the customer site, not the API.
+  PUBLIC_SITE_URL: z.string().url().default('http://localhost:5173'),
+
   // File storage
   STORAGE_DRIVER: z.enum(['local', 's3', 'cloudinary']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./uploads'),

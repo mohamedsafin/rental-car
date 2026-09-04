@@ -35,6 +35,7 @@ import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { ApiError, ErrorCode } from '../../utils/ApiError';
 import { auditService } from '../audit/service';
+import { fireAndForget, notify } from '../notifications/triggers';
 import { paymentProvider } from '../../services/payment';
 import type { VerifiedWebhookEvent } from '../../services/payment';
 
@@ -389,6 +390,13 @@ export const paymentsService = {
         amount: payment.amount.toFixed(2),
       },
     });
+
+    // Detached on purpose. The money has arrived and the booking is confirmed;
+    // a mail server being down must not undo either of those.
+    fireAndForget(notify.paymentReceived(paymentId));
+    if (payment.type === 'RENTAL') {
+      fireAndForget(notify.bookingConfirmed(payment.bookingId));
+    }
 
     logger.info('Payment applied', { paymentId, type: payment.type });
   },

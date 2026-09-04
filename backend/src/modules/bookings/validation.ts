@@ -47,6 +47,9 @@ export const createBookingSchema = z
       .max(20)
       .default([]),
     customerNotes: z.string().max(1000).trim().optional(),
+    /// The promo code as typed. Re-validated server-side at this point, so a
+    /// code that expired between quote and checkout is refused here.
+    couponCode: z.string().min(1).max(40).trim().optional(),
   })
   .refine((data) => data.returnAt > data.pickupAt, {
     message: 'Return must be after pickup',
