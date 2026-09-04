@@ -18,6 +18,7 @@ import { locationRoutes } from '../modules/locations/routes';
 import { availabilityRoutes } from '../modules/availability/routes';
 import { customerRoutes } from '../modules/customers/routes';
 import { documentRoutes } from '../modules/documents/routes';
+import { bookingRoutes } from '../modules/bookings/routes';
 import { pricingRoutes } from '../modules/pricing/routes';
 import { pricingAdminRoutes } from '../modules/pricing/adminRoutes';
 
@@ -33,13 +34,13 @@ router.use('/locations', locationRoutes);
 router.use('/availability', availabilityRoutes);
 router.use('/customers', customerRoutes);
 router.use('/documents', documentRoutes);
+router.use('/bookings', bookingRoutes);
 router.use('/pricing', pricingRoutes);
 // Admin-only pricing management. Mounted under its own prefix so the public
 // /pricing routes stay unambiguously public.
 router.use('/admin/pricing', pricingAdminRoutes);
 
 // --- Mounted in later phases -------------------------------------------
-// router.use('/bookings', bookingRoutes);       // Phase 6
 // router.use('/payments', paymentRoutes);       // Phase 7
 // router.use('/deposits', depositRoutes);       // Phase 7
 // router.use('/rentals', rentalRoutes);         // Phase 8

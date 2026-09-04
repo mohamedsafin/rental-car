@@ -302,11 +302,75 @@ Statuses are `PENDING → APPROVED | REJECTED | EXPIRED`.
 
 ---
 
+## Phase 6 endpoints
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/bookings` | any | Create a booking |
+| GET | `/bookings/me` | any | Own bookings, `?scope=upcoming\|active\|previous\|cancelled` |
+| GET | `/bookings/:id` | owner or STAFF | One booking |
+| POST | `/bookings/:id/cancel` | owner or STAFF | Cancel, computing the fee |
+| GET | `/bookings` | STAFF/ADMIN | Filterable list |
+| PATCH | `/bookings/:id/status` | STAFF/ADMIN | Move through the lifecycle |
+| POST | `/bookings/release-expired-holds` | STAFF/ADMIN | Free abandoned checkouts |
+
+### The create request carries no price
+
+```json
+{ "vehicleId": "...", "pickupAt": "...", "returnAt": "...",
+  "services": [{ "serviceId": "...", "quantity": 1 }] }
+```
+
+A `totalAmount` in the body is stripped by the validation middleware, and the
+service recomputes every figure from the pricing engine regardless. Verified:
+posting `totalAmount: "1.00"` produced a booking stored at **3748.50**.
+
+### Status lifecycle (BRD 21)
+
+```
+PENDING ──► DOCUMENT_VERIFICATION ──► PAYMENT_PENDING ──► CONFIRMED
+                                                              │
+                                                     READY_FOR_PICKUP
+                                                              │
+                                            ACTIVE ◄──► EXTENSION_REQUESTED
+                                                              │
+                                                      RETURN_PENDING
+                                                              │
+                                                   RETURNED ──► COMPLETED
+```
+
+Documents are verified **before** payment, per BRD 3 and 53. A newly created
+booking starts at `PAYMENT_PENDING` if the customer is already verified, and at
+`DOCUMENT_VERIFICATION` otherwise.
+
+`CANCELLED` is reachable from anything before handover. Once a rental is
+`ACTIVE` the car is with the customer, so it must be **returned** — cancelling a
+vehicle someone is currently driving is not a state the machine allows.
+
+Transitions live in one map (`statusMachine.ts`) rather than scattered `if`
+statements, so "can this be cancelled?" has exactly one answer. Every change
+writes a `booking_status_history` row: who, when, from, to, why.
+
+### Concurrency
+
+Booking creation runs in a **SERIALIZABLE** transaction that re-checks
+availability after acquiring locks, on top of the Phase 4 exclusion constraint.
+Two simultaneous requests for the same window return **201 and 409** — never two
+201s, and the loser gets a clean `VEHICLE_UNAVAILABLE`, not a raw Postgres error.
+
+### Cancellation (BRD 31)
+
+The fee is computed from `cancellation.free_window_hours` and
+`cancellation.fee_percentage`, then **frozen** onto the booking. Recomputing it
+later from the live policy would rewrite what a customer was told. Both settings
+seed empty; unset means **no fee**, the same rule as VAT.
+
+---
+
 ## Planned endpoints
 
 | Phase | Prefix |
 | --- | --- |
-| 6 | `/bookings` |
 | 7 | `/payments`, `/deposits` |
 | 8 | `/rentals`, `/inspections` |
 | 9 | `/damages`, `/fines`, `/tolls`, `/maintenance`, `/insurance` |

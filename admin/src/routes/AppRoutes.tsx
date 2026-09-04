@@ -20,6 +20,8 @@ import VehicleFormPage from '../pages/VehicleFormPage';
 import LocationsPage from '../pages/LocationsPage';
 import PricingPage from '../pages/PricingPage';
 import CustomersPage from '../pages/CustomersPage';
+import BookingsPage from '../pages/BookingsPage';
+import AdminBookingDetailPage from '../pages/BookingDetailPage';
 import CustomerDetailPage from '../pages/CustomerDetailPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
@@ -36,6 +38,8 @@ export default function AppRoutes() {
           <Route path="/vehicles/:id" element={<VehicleFormPage />} />
           <Route path="/locations" element={<LocationsPage />} />
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/bookings" element={<BookingsPage />} />
+          <Route path="/bookings/:id" element={<AdminBookingDetailPage />} />
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/customers/:id" element={<CustomerDetailPage />} />
           <Route path="/users" element={<UsersPage />} />

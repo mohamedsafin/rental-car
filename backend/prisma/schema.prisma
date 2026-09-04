@@ -131,11 +131,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  refreshTokens     RefreshToken[]
-  auditLogs         AuditLog[]
-  bookings          Booking[]
-  customer          Customer?
-  reviewedDocuments CustomerDocument[] @relation("DocumentReviewer")
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]
+  bookings             Booking[]
+  customer             Customer?
+  reviewedDocuments    CustomerDocument[]     @relation("DocumentReviewer")
+  cancelledBookings    Booking[]              @relation("BookingCanceller")
+  bookingStatusChanges BookingStatusHistory[] @relation("BookingStatusChanger")
 
   @@index([role])
   @@index([status])
@@ -547,9 +549,26 @@ model Booking {
   securityDeposit  Decimal @default(0) @db.Decimal(10, 2)
   currency         String  @default("AED")
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  cancelledAt DateTime?
+  // --- Cancellation (BRD 31) -------------------------------------------
+  cancelledAt        DateTime?
+  cancelledById      String?   @db.Uuid
+  cancelledBy        User?     @relation("BookingCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+  cancellationReason String?
+  /// Fee retained under the cancellation policy. Computed at cancel time from
+  /// settings, then frozen - changing the policy must not rewrite history.
+  cancellationFee    Decimal   @default(0) @db.Decimal(10, 2)
+  /// What the customer is owed back. Actually refunded in Phase 7.
+  refundDueAmount    Decimal   @default(0) @db.Decimal(10, 2)
+
+  /// Free text from the customer at checkout, and internal staff notes.
+  customerNotes String?
+  staffNotes    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services      BookingService[]
+  statusHistory BookingStatusHistory[]
 
   @@index([vehicleId, pickupAt, returnAt])
   @@index([customerId])
@@ -580,6 +599,8 @@ model AdditionalService {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+
+  bookingServices BookingService[]
 
   @@index([isActive])
   @@map("additional_services")
@@ -762,4 +783,62 @@ model CustomerDocument {
   @@index([status])
   @@index([expiryDate])
   @@map("customer_documents")
+}
+
+// ===========================================================================
+// PHASE 6 - Booking lifecycle
+// ===========================================================================
+
+/// Add-ons attached to a booking (BRD 17).
+///
+/// The price is COPIED here, not looked up through the relation. If the admin
+/// raises the child-seat price next month, an invoice issued last month must
+/// still show what the customer actually agreed to pay.
+model BookingService {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  serviceId String            @db.Uuid
+  service   AdditionalService @relation(fields: [serviceId], references: [id])
+
+  /// Snapshot of the service name, so the line reads correctly even if the
+  /// service is later renamed or deactivated.
+  name       String
+  quantity   Int
+  /// Unit price AT THE TIME OF BOOKING.
+  unitPrice  Decimal           @db.Decimal(10, 2)
+  chargeType ServiceChargeType
+  /// quantity x unitPrice x (rentalDays for PER_DAY, else 1).
+  lineTotal  Decimal           @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+
+  @@unique([bookingId, serviceId])
+  @@index([bookingId])
+  @@map("booking_services")
+}
+
+/// Every status change, append-only.
+///
+/// A booking's `status` column says where it is now; this says how it got
+/// there. When a customer disputes "you cancelled my booking", this is the
+/// record of who changed what, when, and why.
+model BookingStatusHistory {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  fromStatus BookingStatus?
+  toStatus   BookingStatus
+
+  /// Null for automatic transitions such as an expired hold.
+  changedById String? @db.Uuid
+  changedBy   User?   @relation("BookingStatusChanger", fields: [changedById], references: [id], onDelete: SetNull)
+  reason      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
+  @@map("booking_status_history")
 }

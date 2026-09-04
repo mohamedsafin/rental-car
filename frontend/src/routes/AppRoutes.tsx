@@ -16,6 +16,8 @@ import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
 import AccountPage from '../pages/AccountPage';
 import DocumentsPage from '../pages/DocumentsPage';
+import MyBookingsPage from '../pages/MyBookingsPage';
+import BookingDetailPage from '../pages/BookingDetailPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 export default function AppRoutes() {
@@ -34,7 +36,9 @@ export default function AppRoutes() {
         <Route element={<ProtectedRoute />}>
           <Route path="/account" element={<AccountPage />} />
           <Route path="/account/documents" element={<DocumentsPage />} />
-          {/* Phase 6+: /account/bookings. Phase 10+: /account/invoices */}
+          <Route path="/account/bookings" element={<MyBookingsPage />} />
+          <Route path="/account/bookings/:id" element={<BookingDetailPage />} />
+          {/* Phase 10+: /account/invoices */}
         </Route>
 
         {/* Phase 6+: /booking, /checkout. Phase 10+: /faq, /terms */}

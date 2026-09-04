@@ -11,10 +11,16 @@
  * It also asks about availability in the same call, so the panel can say "not
  * available for these dates" the moment the dates change rather than at
  * checkout.
+ *
+ * The Book button sends only the CHOICE - vehicle, dates, services. The total
+ * shown here is for the customer's benefit; the backend recomputes it.
  */
 import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import PriceBreakdown from './PriceBreakdown';
 import { toIso, useAdditionalServices, useQuote } from '../features/booking/useBooking';
+import { useCreateBooking } from '../features/bookings/useBookings';
+import { useAuth } from '../hooks/useAuth';
 import type { Vehicle } from '../types/vehicle';
 
 function dateOffset(days: number): string {
@@ -38,6 +44,11 @@ export interface QuotePanelProps {
 }
 
 export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const createBooking = useCreateBooking();
+  const [bookingError, setBookingError] = useState<string | null>(null);
+
   const [dates, setDates] = useState({
     pickupDate: initial?.pickupDate || dateOffset(1),
     pickupTime: initial?.pickupTime || '10:00',
@@ -175,16 +186,47 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
 
           <PriceBreakdown quote={data.quote} />
 
-          <button
-            type="button"
-            disabled
-            title="Booking opens with the booking module"
-            className="w-full cursor-not-allowed rounded-md bg-slate-300 px-4 py-2.5 text-sm font-medium text-slate-600"
-          >
-            Continue to booking
-          </button>
+          {bookingError && (
+            <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {bookingError}
+            </div>
+          )}
+
+          {isAuthenticated ? (
+            <button
+              type="button"
+              disabled={!data.availability.available || createBooking.isPending}
+              onClick={() => {
+                setBookingError(null);
+                createBooking.mutate(
+                  {
+                    vehicleId: vehicle.id,
+                    pickupAt,
+                    returnAt,
+                    services,
+                    pickupLocationId: initial?.pickupLocationId,
+                  },
+                  {
+                    onSuccess: (result) => navigate(`/account/bookings/${result.booking.id}`),
+                    onError: (error) => setBookingError(error.message),
+                  },
+                );
+              }}
+              className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+            >
+              {createBooking.isPending ? 'Creating booking...' : 'Book this vehicle'}
+            </button>
+          ) : (
+            <Link
+              to="/login"
+              className="block w-full rounded-md bg-slate-900 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-slate-800"
+            >
+              Sign in to book
+            </Link>
+          )}
+
           <p className="text-center text-xs text-slate-500">
-            Checkout opens once the booking and payment modules are built.
+            Payment is taken at the next step (coming with the payment module).
           </p>
         </>
       )}

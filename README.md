@@ -9,7 +9,7 @@ document requirements — are **configurable settings, not hardcoded numbers**.
 
 ## Status
 
-**Phase 5 complete — Customers, documents & verification.** See
+**Phase 6 complete — Bookings.** See
 [docs/development-plan.md](docs/development-plan.md) for the roadmap.
 
 Done so far: monorepo foundation and health checks; JWT auth with
@@ -18,7 +18,9 @@ categories, features, locations, validated image upload); and the availability
 and pricing engines (dated search returning only bookable cars, a
 double-booking guarantee enforced by a PostgreSQL exclusion constraint, and a
 server-side price breakdown); and customer profiles with private identity-
-document upload and a staff verification workflow.
+document upload and a staff verification workflow; and the booking module —
+creation in a serializable transaction with server-computed pricing, the full
+status lifecycle, and cancellation against a configurable policy.
 
 ## Stack
 

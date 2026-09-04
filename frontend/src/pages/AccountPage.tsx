@@ -12,7 +12,6 @@ import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../features/customer/useCustomer';
 
 const PLANNED_SECTIONS = [
-  { title: 'My bookings', detail: 'Upcoming, active, previous and cancelled', phase: 'Phase 6' },
   { title: 'Payments & refunds', detail: 'Payment history and refund status', phase: 'Phase 7' },
   { title: 'Invoices', detail: 'View and download invoices', phase: 'Phase 10' },
 ];
@@ -65,6 +64,23 @@ export default function AccountPage() {
             className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
           >
             {profile?.verification.isVerified ? 'View documents' : 'Upload documents'}
+          </Link>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-slate-900">My bookings</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Upcoming reservations, active rentals and past trips.
+            </p>
+          </div>
+          <Link
+            to="/account/bookings"
+            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            View bookings
           </Link>
         </div>
       </section>

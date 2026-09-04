@@ -72,7 +72,7 @@ indexable — over timezone-aware columns.
 | `customers` | Customer profile, 1:1 with a `users` row. |
 | `customer_documents` | Emirates ID, licence, passport, visa, IDP. Status, rejection reason, expiry, reviewer. Stores a PRIVATE storage key, never a URL — there is no public path to the file. Superseded rows are kept: a rejected document and its replacement are the verification record. |
 
-### Phase 6 — bookings
+### Phase 6 — bookings (done)
 | Table | Purpose |
 | --- | --- |
 | `bookings` | The core record: vehicle, customer, dates, locations, status, price snapshot. |
