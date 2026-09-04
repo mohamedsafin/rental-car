@@ -131,9 +131,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
-  bookings      Booking[]
+  refreshTokens     RefreshToken[]
+  auditLogs         AuditLog[]
+  bookings          Booking[]
+  customer          Customer?
+  reviewedDocuments CustomerDocument[] @relation("DocumentReviewer")
 
   @@index([role])
   @@index([status])
@@ -527,7 +529,7 @@ model Booking {
   /// While in the future, a PENDING booking holds the vehicle. Past it, the
   /// hold lapses and the car becomes bookable again - so an abandoned checkout
   /// cannot take a vehicle off sale indefinitely.
-  holdExpiresAt DateTime? @db.Timestamptz(3)
+  holdExpiresAt DateTime?     @db.Timestamptz(3)
 
   // --- Price snapshot ---------------------------------------------------
   // Copied from the pricing engine at booking time, NOT looked up later. If
@@ -627,4 +629,137 @@ model PricingRule {
   @@index([vehicleId])
   @@index([categoryId])
   @@map("pricing_rules")
+}
+
+// ===========================================================================
+// PHASE 5 - Customers and their documents
+// ===========================================================================
+
+/// Drives WHICH documents a customer must provide (BRD 12).
+///
+/// The BRD lists different requirements for UAE residents (Emirates ID + UAE
+/// licence) and visitors (passport + visa + IDP). The exact list is
+/// client-approved and lives in system_settings, but the two-way split is
+/// structural, so it is an enum.
+enum ResidencyStatus {
+  UAE_RESIDENT
+  VISITOR
+}
+
+/// Document kinds from BRD 12.
+enum DocumentType {
+  EMIRATES_ID
+  UAE_DRIVING_LICENCE
+  PASSPORT
+  VISA
+  /// Home-country licence, for visitors.
+  DRIVING_LICENCE
+  INTERNATIONAL_DRIVING_PERMIT
+  OTHER
+}
+
+/// BRD 13 names exactly these four.
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  /// Set when the expiry date passes. An approved-but-expired licence is not
+  /// valid, and must not silently keep counting as approved.
+  EXPIRED
+}
+
+/// Rental-specific profile, one row per customer (BRD 22 "My Profile").
+///
+/// Separate from `users` because that table is pure identity - it serves
+/// admins and staff too, and none of this applies to them. Splitting also
+/// keeps the sensitive personal data in one table that can be encrypted at
+/// rest or access-audited independently.
+model Customer {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Decides which documents are required. Null until the customer says.
+  residencyStatus ResidencyStatus?
+
+  dateOfBirth DateTime? @db.Date
+  /// ISO 3166-1 alpha-2.
+  nationality String?
+
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  emirate      String?
+  country      String?
+
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  /// Licence details, captured once and checked against the uploaded document.
+  licenceNumber         String?
+  licenceIssuingCountry String?
+  licenceIssueDate      DateTime? @db.Date
+  licenceExpiryDate     DateTime? @db.Date
+
+  /// Cached roll-up of document state, so the admin list and the booking flow
+  /// do not have to re-derive it from every document on every read. Recomputed
+  /// by the service whenever a document changes - never edited by hand.
+  isVerified Boolean   @default(false)
+  verifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents CustomerDocument[]
+
+  @@index([isVerified])
+  @@map("customers")
+}
+
+/// An uploaded identity document (BRD 12 and 13).
+///
+/// SECURITY: `storageKey` points into the storage provider's PRIVATE area.
+/// There is deliberately no URL column and no public route - the file is only
+/// ever streamed through an authorised endpoint that checks who is asking.
+/// BRD 12: "Do not expose private documents through public URLs."
+model CustomerDocument {
+  id         String   @id @default(uuid()) @db.Uuid
+  customerId String   @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  type   DocumentType
+  status DocumentStatus @default(PENDING)
+
+  /// Private storage key. NOT a URL.
+  storageKey String
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+
+  /// Details the customer enters and staff verify against the image.
+  documentNumber String?
+  issuingCountry String?
+  issueDate      DateTime? @db.Date
+  expiryDate     DateTime? @db.Date
+
+  // --- Review trail (BRD 13) -------------------------------------------
+  reviewedById    String?   @db.Uuid
+  reviewedBy      User?     @relation("DocumentReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt      DateTime?
+  /// Required when rejecting: BRD 13 says the customer must be told why so
+  /// they can upload a corrected document.
+  rejectionReason String?
+
+  /// Set when a re-upload replaces this document. The old row is KEPT - a
+  /// rejected passport is part of the audit trail and must not vanish.
+  supersededAt   DateTime?
+  supersededById String?   @db.Uuid
+
+  uploadedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([customerId, status])
+  @@index([status])
+  @@index([expiryDate])
+  @@map("customer_documents")
 }

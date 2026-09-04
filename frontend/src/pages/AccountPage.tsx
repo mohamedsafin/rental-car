@@ -7,10 +7,11 @@
  * payments, invoices and documents sections need their modules to exist first,
  * so they are listed here as placeholders with the phase that delivers them.
  */
+import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useMyProfile } from '../features/customer/useCustomer';
 
 const PLANNED_SECTIONS = [
-  { title: 'My documents', detail: 'Emirates ID, licence, passport upload and status', phase: 'Phase 5' },
   { title: 'My bookings', detail: 'Upcoming, active, previous and cancelled', phase: 'Phase 6' },
   { title: 'Payments & refunds', detail: 'Payment history and refund status', phase: 'Phase 7' },
   { title: 'Invoices', detail: 'View and download invoices', phase: 'Phase 10' },
@@ -18,6 +19,7 @@ const PLANNED_SECTIONS = [
 
 export default function AccountPage() {
   const { user, logout } = useAuth();
+  const { data: profile } = useMyProfile();
   if (!user) return null;
 
   return (
@@ -46,6 +48,25 @@ export default function AccountPage() {
           <Detail label="Account type" value={user.role} />
           <Detail label="Status" value={user.status} />
         </dl>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-slate-900">My documents</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {profile?.verification.isVerified
+                ? 'All required documents are approved.'
+                : 'Upload your ID and licence so we can verify you before your first rental.'}
+            </p>
+          </div>
+          <Link
+            to="/account/documents"
+            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            {profile?.verification.isVerified ? 'View documents' : 'Upload documents'}
+          </Link>
+        </div>
       </section>
 
       <section>

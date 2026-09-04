@@ -79,8 +79,12 @@ async function main(): Promise<void> {
     { key: 'cancellation.free_window_hours', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Free cancellation window (hours)' },
     { key: 'cancellation.fee_percentage', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Cancellation fee (%)' },
 
-    { key: 'documents.required_uae_resident', value: '[]', valueType: 'JSON', category: 'DOCUMENTS', label: 'Required documents - UAE resident' },
-    { key: 'documents.required_visitor', value: '[]', valueType: 'JSON', category: 'DOCUMENTS', label: 'Required documents - visitor' },
+    // Still seeded EMPTY. BRD 12 says the exact list is client-approved, and
+    // requiring the wrong document would wrongly block a paying customer -
+    // or, worse, wrongly let one through. Valid values are the DocumentType
+    // enum, e.g. ["EMIRATES_ID","UAE_DRIVING_LICENCE"].
+    { key: 'documents.required_uae_resident', value: '[]', valueType: 'JSON', category: 'DOCUMENTS', label: 'Required documents - UAE resident', description: 'JSON array of DocumentType values. Empty = nothing required yet.' },
+    { key: 'documents.required_visitor', value: '[]', valueType: 'JSON', category: 'DOCUMENTS', label: 'Required documents - visitor', description: 'JSON array of DocumentType values. Empty = nothing required yet.' },
 
     { key: 'rental.minimum_rental_hours', value: '1', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Minimum rental duration (hours)', description: 'Structural floor. Confirm the commercial minimum with the client.' },
     { key: 'rental.maximum_rental_days', value: '365', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Maximum rental duration (days)' },

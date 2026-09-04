@@ -25,6 +25,13 @@ import { ApiError, ErrorCode } from '../utils/ApiError';
 const ALLOWED_IMAGE_MIME = ['image/jpeg', 'image/png', 'image/webp'] as const;
 
 /**
+ * Identity documents additionally allow PDF: an Emirates ID or a visa page is
+ * very often issued as one. Everything else stays out - a document upload is
+ * not a general file drop.
+ */
+const ALLOWED_DOCUMENT_MIME = [...ALLOWED_IMAGE_MIME, 'application/pdf'] as const;
+
+/**
  * Leading bytes that identify each format.
  * JPEG: FF D8 FF          PNG: 89 50 4E 47 0D 0A 1A 0A
  * WebP: "RIFF" ....  "WEBP" at offset 8
@@ -43,6 +50,8 @@ const MAGIC_BYTES: Record<string, (buffer: Buffer) => boolean> = {
     b[7] === 0x0a,
   'image/webp': (b) =>
     b.length > 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP',
+  // PDF: the file must literally begin with "%PDF-".
+  'application/pdf': (b) => b.length > 5 && b.toString('ascii', 0, 5) === '%PDF-',
 };
 
 function imageFileFilter(
@@ -74,6 +83,34 @@ export const uploadVehicleImages = multer({
 }).array('images', 10);
 
 /**
+ * Upload handler for customer identity documents: ONE file per request.
+ *
+ * One at a time is deliberate. Each document carries its own type, number and
+ * expiry date, and a batch upload would either lose that detail or need a
+ * parallel array of metadata that can fall out of step with the files.
+ */
+export const uploadCustomerDocument = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: env.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
+    files: 1,
+  },
+  fileFilter(_req, file, callback) {
+    if (!ALLOWED_DOCUMENT_MIME.includes(file.mimetype as (typeof ALLOWED_DOCUMENT_MIME)[number])) {
+      callback(
+        new ApiError(
+          400,
+          `Unsupported file type. Upload a JPEG, PNG, WebP or PDF.`,
+          ErrorCode.FILE_UPLOAD_ERROR,
+        ),
+      );
+      return;
+    }
+    callback(null, true);
+  },
+}).single('document');
+
+/**
  * Verify the bytes match the declared type. Call this in the service, on every
  * uploaded file, before anything is stored.
  */
@@ -90,6 +127,22 @@ export function assertRealImage(file: Express.Multer.File): void {
 }
 
 /** Translate multer's own errors into our standard envelope. */
+/**
+ * Same magic-byte check, extended to PDF. Kept as its own export so the
+ * intent at each call site is explicit about what it accepts.
+ */
+export function assertRealDocument(file: Express.Multer.File): void {
+  const check = MAGIC_BYTES[file.mimetype];
+
+  if (!check || !check(file.buffer)) {
+    throw new ApiError(
+      400,
+      `"${file.originalname}" does not appear to be a valid ${file.mimetype} file`,
+      ErrorCode.FILE_UPLOAD_ERROR,
+    );
+  }
+}
+
 export function normaliseMulterError(error: unknown): ApiError | null {
   if (!(error instanceof multer.MulterError)) return null;
 

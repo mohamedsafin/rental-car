@@ -219,7 +219,7 @@ router.get(
   '/settings',
   asyncHandler(async (_req, res) => {
     const settings = await prisma.systemSetting.findMany({
-      where: { isSecret: false, category: { in: ['PRICING', 'RENTAL_POLICY'] } },
+      where: { isSecret: false, category: { in: ['PRICING', 'RENTAL_POLICY', 'DOCUMENTS'] } },
       orderBy: [{ category: 'asc' }, { key: 'asc' }],
     });
     sendSuccess(res, { settings }, 'Settings retrieved');

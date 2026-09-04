@@ -9,15 +9,16 @@ document requirements — are **configurable settings, not hardcoded numbers**.
 
 ## Status
 
-**Phase 4 complete — Availability engine, search & pricing.** See
+**Phase 5 complete — Customers, documents & verification.** See
 [docs/development-plan.md](docs/development-plan.md) for the roadmap.
 
 Done so far: monorepo foundation and health checks; JWT auth with
 refresh-token rotation and backend-enforced RBAC; the fleet (vehicles,
 categories, features, locations, validated image upload); and the availability
-and pricing engines — dated search that returns only bookable cars, a
+and pricing engines (dated search returning only bookable cars, a
 double-booking guarantee enforced by a PostgreSQL exclusion constraint, and a
-full price breakdown computed server-side.
+server-side price breakdown); and customer profiles with private identity-
+document upload and a staff verification workflow.
 
 ## Stack
 

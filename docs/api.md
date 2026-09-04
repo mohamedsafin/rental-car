@@ -253,11 +253,59 @@ Enforced at three layers: the search filter, a re-check inside the booking trans
 
 ---
 
+## Phase 5 endpoints
+
+### Customer profile
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/customers/me` | any | Own profile + verification checklist |
+| PATCH | `/customers/me` | any | Update own profile |
+| GET | `/customers/me/documents` | any | Own documents |
+| GET | `/customers` | STAFF/ADMIN | Paginated list, `?pendingDocuments=true` for the review queue |
+| GET | `/customers/:id` | STAFF/ADMIN | One customer + documents |
+
+The `/me` routes carry **no id** — the record is identified by the token, so there is nothing to tamper with. That is why this module needs no ownership middleware on the self routes.
+
+### Documents
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/documents` | any | Upload one document (multipart, field `document`) |
+| GET | `/documents/:id/file` | owner or STAFF/ADMIN | **The only way to read a stored file** |
+| PATCH | `/documents/:id/review` | STAFF/ADMIN | Approve or reject (BRD 13) |
+| POST | `/documents/expire-overdue` | STAFF/ADMIN | Sweep expired approvals |
+
+## Private document storage (BRD 12)
+
+Identity documents are stored under the storage root's `private/` folder, which `express.static` never mounts. There is **no URL column anywhere** — only an opaque `storageKey` that never leaves the server.
+
+```
+uploads/private/customers/<id>/<uuid>.png    identity documents  — no URL exists
+uploads/public/vehicles/<id>/<uuid>.png      vehicle images      — served at /uploads/...
+```
+
+Every guessed path returns 404. Reading a document requires `GET /documents/:id/file`, which authenticates the caller, checks ownership, writes an audit row, and only then streams the bytes with `Cache-Control: private, no-store`.
+
+**A non-owner gets 404, not 403.** A 403 would confirm the document exists; the responses for a real id and a fabricated one are byte-identical.
+
+The browser cannot use `<img src>` on these paths — the request needs an `Authorization` header — so the admin viewer fetches the bytes and creates a blob URL, revoking it on unmount.
+
+## Verification workflow
+
+Statuses are `PENDING → APPROVED | REJECTED | EXPIRED`.
+
+- A rejection **requires** a reason (400 without one), which the customer sees so they can correct it.
+- Re-uploading the same type **supersedes** the old document rather than deleting it — a rejected passport plus its replacement is the record of what was checked.
+- A customer is verified only when **every** required document is APPROVED *and* unexpired. An APPROVED-but-expired licence does not count.
+- Required documents come from `documents.required_uae_resident` / `documents.required_visitor`, both seeded `[]`. With nothing configured the system asks for nothing **and says so** — it never invents a requirement, and never defaults verification to `true`.
+
+---
+
 ## Planned endpoints
 
 | Phase | Prefix |
 | --- | --- |
-| 5 | `/customers`, `/documents` |
 | 6 | `/bookings` |
 | 7 | `/payments`, `/deposits` |
 | 8 | `/rentals`, `/inspections` |

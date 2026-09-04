@@ -15,6 +15,7 @@ import CarDetailsPage from '../pages/CarDetailsPage';
 import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
 import AccountPage from '../pages/AccountPage';
+import DocumentsPage from '../pages/DocumentsPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 export default function AppRoutes() {
@@ -32,7 +33,8 @@ export default function AppRoutes() {
         {/* Signed-in customers only */}
         <Route element={<ProtectedRoute />}>
           <Route path="/account" element={<AccountPage />} />
-          {/* Phase 5+: /account/documents, /account/bookings, /account/invoices */}
+          <Route path="/account/documents" element={<DocumentsPage />} />
+          {/* Phase 6+: /account/bookings. Phase 10+: /account/invoices */}
         </Route>
 
         {/* Phase 6+: /booking, /checkout. Phase 10+: /faq, /terms */}

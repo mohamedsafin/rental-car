@@ -51,8 +51,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'People',
     items: [
-      { label: 'Customers', phase: 'Phase 5' },
-      { label: 'Documents', phase: 'Phase 5' },
+      { label: 'Customers', to: '/customers' },
       { label: 'Users & roles', to: '/users', roles: ['ADMIN'] },
     ],
   },

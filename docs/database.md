@@ -66,11 +66,11 @@ happen.
 same instant everywhere, and `tstzrange()` is only IMMUTABLE — and therefore
 indexable — over timezone-aware columns.
 
-### Phase 5 — customers and documents
+### Phase 5 — customers and documents (done)
 | Table | Purpose |
 | --- | --- |
 | `customers` | Customer profile, 1:1 with a `users` row. |
-| `customer_documents` | Emirates ID, licence, passport, visa, IDP. Status + rejection reason + expiry. Stores a storage key, never a public URL. |
+| `customer_documents` | Emirates ID, licence, passport, visa, IDP. Status, rejection reason, expiry, reviewer. Stores a PRIVATE storage key, never a URL — there is no public path to the file. Superseded rows are kept: a rejected document and its replacement are the verification record. |
 
 ### Phase 6 — bookings
 | Table | Purpose |

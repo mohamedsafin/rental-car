@@ -19,6 +19,8 @@ import VehiclesPage from '../pages/VehiclesPage';
 import VehicleFormPage from '../pages/VehicleFormPage';
 import LocationsPage from '../pages/LocationsPage';
 import PricingPage from '../pages/PricingPage';
+import CustomersPage from '../pages/CustomersPage';
+import CustomerDetailPage from '../pages/CustomerDetailPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 export default function AppRoutes() {
@@ -34,6 +36,8 @@ export default function AppRoutes() {
           <Route path="/vehicles/:id" element={<VehicleFormPage />} />
           <Route path="/locations" element={<LocationsPage />} />
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/customers" element={<CustomersPage />} />
+          <Route path="/customers/:id" element={<CustomerDetailPage />} />
           <Route path="/users" element={<UsersPage />} />
           {/* Phase 5+: /customers, /documents. Phase 6+: /bookings.
               Phase 7+: /payments. Phase 10+: /reports, /settings */}
