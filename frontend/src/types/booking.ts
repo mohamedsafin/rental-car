@@ -43,6 +43,8 @@ export interface Booking {
     category: string;
     /** Null on the customer view - internal fleet data. */
     registrationNumber: string | null;
+    /** Null on the customer view. Staff use it as the handover baseline. */
+    currentMileage: number | null;
     imageUrl: string | null;
   };
 

@@ -12,6 +12,7 @@ import { Link, useParams } from 'react-router-dom';
 import BookingStatusBadge from '../components/BookingStatusBadge';
 import PaymentPanel from '../components/PaymentPanel';
 import DepositPanel from '../components/DepositPanel';
+import ExtensionRequest from '../components/ExtensionRequest';
 import { useBooking, useCancelBooking } from '../features/bookings/useBookings';
 import { BOOKING_STATUS_HELP } from '../types/booking';
 
@@ -173,6 +174,8 @@ export default function BookingDetailPage() {
           </div>
         </div>
       </section>
+
+      <ExtensionRequest booking={booking} />
 
       <PaymentPanel booking={booking} />
 

@@ -448,10 +448,92 @@ to boot in production**.
 
 ---
 
+## Phase 8 endpoints
+
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/rentals/booking/:bookingId` | owner or STAFF | Rental, inspections, charges, extensions |
+| POST | `/rentals/booking/:bookingId/pickup` | STAFF | Hand over (BRD 24) |
+| POST | `/rentals/booking/:bookingId/return` | STAFF | Take back + calculate charges (BRD 26) |
+| POST | `/rentals/booking/:bookingId/close` | STAFF | Car back in service, booking completed |
+| POST | `/rentals/inspections/:id/photos` | STAFF | Inspection photos (BRD 25) |
+| POST | `/rentals/charges/:chargeId/settle` | STAFF | Take a charge from the deposit |
+| POST | `/rentals/charges/:chargeId/waive` | ADMIN | Write a charge off, with a reason |
+| POST | `/rentals/booking/:bookingId/extensions` | owner or STAFF | Request an extension (BRD 23) |
+| PATCH | `/rentals/extensions/:id/review` | STAFF | Approve or reject |
+
+## Booking vs rental
+
+A **booking** is what was agreed. A **rental** is what actually happened. They
+usually match; when they do not — collected two hours late, returned a day
+early, 2,500 km driven — the rental records reality, and the *difference*
+between the two inspections is what gets charged.
+
+Both inspections are kept, never one row that gets updated: *"the scratch was
+already there"* has to be an answerable question.
+
+## Return charges
+
+Every rate is a **setting** (BRD 51). An unset rate produces **no charge** and a
+warning, never a guessed default. Verified live with a full policy configured:
+
+```
+LATE_RETURN         300.00  Returned 24h late (1 extra day)
+EXCESS_MILEAGE     1875.00  1250km over the 1250km allowance
+FUEL                200.00  Returned 40% below the fuel level at pickup
+CLEANING            200.00  Vehicle required cleaning beyond normal use
+TOTAL              2575.00
+```
+
+Each charge stores a `calculation` object showing how the figure was reached —
+these are the numbers customers dispute at the counter.
+
+Two rules worth stating:
+
+- **Late return is charged in whole days**, matching how the rental itself is
+  priced. Two different day-counting conventions inside one system is a bug
+  waiting to happen.
+- **Fuel is charged on the shortfall only.** A customer who returns the car
+  fuller is neither refunded nor charged.
+
+## Charges are separate from the deposit ledger
+
+A charge is a **decision** (*"3 hours late, that is one extra day"*). A deposit
+transaction is a **movement of money**. Keeping them apart means an admin can
+waive a charge without unpicking a ledger entry:
+
+```
+settle LATE_RETURN  -> deposit DEDUCTION 300.00
+waive  EXCESS_MILEAGE (reason recorded, no ledger entry)
+settle FUEL         -> deposit DEDUCTION 200.00
+settle CLEANING     -> deposit DEDUCTION 200.00
+
+held 3000.00   deducted 700.00   balance 2300.00
+```
+
+## Vehicle status through the lifecycle
+
+```
+AVAILABLE -> (pickup) -> RENTED -> (return) -> UNDER_INSPECTION -> (close) -> AVAILABLE
+```
+
+`UNDER_INSPECTION` deliberately does **not** block future bookings — a car
+being checked over today is bookable for next month, exactly like a car
+currently out on hire.
+
+## Extensions (BRD 23)
+
+Availability is checked at request time **and again on approval** — the car may
+have been booked by someone else in between. The booking being extended is
+excluded from the check, or a rental would always conflict with itself.
+Approval moves the booking's `returnAt`, so availability, late fees and the
+mileage allowance all use the new date.
+
+---
+
 ## Planned endpoints
 
 | Phase | Prefix |
 | --- | --- |
-| 8 | `/rentals`, `/inspections` |
 | 9 | `/damages`, `/fines`, `/tolls`, `/maintenance`, `/insurance` |
 | 10 | `/coupons`, `/invoices`, `/notifications`, `/reports` |

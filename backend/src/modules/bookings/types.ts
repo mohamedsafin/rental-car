@@ -54,6 +54,8 @@ export interface PublicBooking {
     category: string;
     /** Admin view only - internal fleet data. */
     registrationNumber: string | null;
+    /** Admin view only. The handover form validates the new reading against it. */
+    currentMileage: number | null;
     imageUrl: string | null;
   };
 
@@ -143,6 +145,7 @@ export function toPublicBooking(
       year: booking.vehicle.year,
       category: booking.vehicle.category.name,
       registrationNumber: includePrivate ? booking.vehicle.registrationNumber : null,
+      currentMileage: includePrivate ? booking.vehicle.currentMileage : null,
       // Built here rather than stored: the storage provider owns URL shape.
       imageUrl: primaryImage ? `/uploads/${primaryImage.storageKey.replace(/^public\//, '')}` : null,
     },

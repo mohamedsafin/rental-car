@@ -89,6 +89,14 @@ async function main(): Promise<void> {
     { key: 'rental.minimum_rental_hours', value: '1', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Minimum rental duration (hours)', description: 'Structural floor. Confirm the commercial minimum with the client.' },
     { key: 'rental.maximum_rental_days', value: '365', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Maximum rental duration (days)' },
     { key: 'rental.booking_hold_minutes', value: '30', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Unpaid booking hold (minutes)', description: 'How long an unpaid booking holds a vehicle before the hold lapses.' },
+    // Return-charge policy (BRD 26, 30, 51). All EMPTY: late fees, fuel
+    // charges and cleaning fees are commercial decisions the client makes.
+    // Unset means the charge is skipped and a warning is surfaced - never a
+    // guessed number appearing on a customer's bill.
+    { key: 'rental.late_grace_hours', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Late return grace period (hours)', description: 'Hours after the due time before a late fee applies. Unset = no late fee is charged.' },
+    { key: 'rental.late_fee_per_day', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Late return fee per day', description: "Unset falls back to the vehicle's own daily rate." },
+    { key: 'rental.fuel_charge_per_percent', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Fuel charge per 1% missing', description: 'Unset = no fuel charge is applied.' },
+    { key: 'rental.cleaning_fee', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Cleaning fee', description: 'Flat fee when a vehicle is returned needing cleaning. Unset = no charge.' },
     { key: 'reminders.expiry_days', value: '[30,15,7,0]', valueType: 'JSON', category: 'SYSTEM', label: 'Expiry reminder days', description: 'BRD 41 gives these as an example; admin-configurable.' },
   ] as const;
 

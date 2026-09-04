@@ -62,15 +62,26 @@ export const BLOCKING_STATUSES: BookingStatus[] = [
 /**
  * Vehicle statuses that make a car unbookable regardless of its calendar.
  *
- * RESERVED and RENTED are NOT here: they describe what the car is doing right
- * now, and a car out on hire today can legitimately be booked for next month.
- * Treating them as blockers would make the fleet look far emptier than it is.
+ * The test is simple: does this status describe the car's state RIGHT NOW, or
+ * its state for the foreseeable future?
+ *
+ * NOT here, because they are momentary:
+ *   RESERVED, RENTED       - out on hire today, bookable for next month
+ *   UNDER_INSPECTION       - the post-return check takes hours, not weeks
+ *
+ * Treating any of those as a blocker would make the fleet look far emptier
+ * than it is and turn away bookings the company could serve. UNDER_INSPECTION
+ * originally WAS in this list, which meant every returned car silently
+ * dropped out of search until someone closed the rental - a quiet loss of
+ * revenue that only surfaced when a test tried to book a car that had just
+ * come back.
+ *
+ * Still here:
+ *   UNDER_MAINTENANCE - Phase 9 gives maintenance real date ranges, which is
+ *                       the right way to express "off the road until the 20th"
+ *   UNAVAILABLE       - withdrawn from the fleet
  */
-export const UNBOOKABLE_VEHICLE_STATUSES = [
-  'UNDER_MAINTENANCE',
-  'UNDER_INSPECTION',
-  'UNAVAILABLE',
-] as const;
+export const UNBOOKABLE_VEHICLE_STATUSES = ['UNDER_MAINTENANCE', 'UNAVAILABLE'] as const;
 
 export interface RentalPeriod {
   pickupAt: Date;

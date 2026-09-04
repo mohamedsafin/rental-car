@@ -131,15 +131,20 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  refreshTokens        RefreshToken[]
-  auditLogs            AuditLog[]
-  bookings             Booking[]
-  customer             Customer?
-  reviewedDocuments    CustomerDocument[]     @relation("DocumentReviewer")
-  cancelledBookings    Booking[]              @relation("BookingCanceller")
-  bookingStatusChanges BookingStatusHistory[] @relation("BookingStatusChanger")
-  initiatedRefunds     Refund[]               @relation("RefundInitiator")
-  depositTransactions  DepositTransaction[]   @relation("DepositTransactionCreator")
+  refreshTokens         RefreshToken[]
+  auditLogs             AuditLog[]
+  bookings              Booking[]
+  customer              Customer?
+  reviewedDocuments     CustomerDocument[]     @relation("DocumentReviewer")
+  cancelledBookings     Booking[]              @relation("BookingCanceller")
+  bookingStatusChanges  BookingStatusHistory[] @relation("BookingStatusChanger")
+  initiatedRefunds      Refund[]               @relation("RefundInitiator")
+  depositTransactions   DepositTransaction[]   @relation("DepositTransactionCreator")
+  rentalsHandedOver     Rental[]               @relation("RentalHandover")
+  rentalsReceived       Rental[]               @relation("RentalReceipt")
+  inspectionsCarriedOut VehicleInspection[]    @relation("InspectionStaff")
+  extensionsReviewed    BookingExtension[]     @relation("ExtensionReviewer")
+  chargesCreated        AdditionalCharge[]     @relation("ChargeCreator")
 
   @@index([role])
   @@index([status])
@@ -569,13 +574,16 @@ model Booking {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  services      BookingService[]
-  statusHistory BookingStatusHistory[]
-  payments      Payment[]
+  services          BookingService[]
+  statusHistory     BookingStatusHistory[]
+  payments          Payment[]
   /// Named `deposit`, not `securityDeposit`: that name is already taken by the
   /// Decimal snapshot column above. The column is the AGREED amount; this
   /// relation is the record of what was actually held and settled.
-  deposit       SecurityDeposit?
+  deposit           SecurityDeposit?
+  rental            Rental?
+  bookingExtensions BookingExtension[]
+  additionalCharges AdditionalCharge[]
 
   @@index([vehicleId, pickupAt, returnAt])
   @@index([customerId])
@@ -1050,4 +1058,237 @@ model WebhookEvent {
   @@unique([provider, eventId])
   @@index([processedAt])
   @@map("webhook_events")
+}
+
+// ===========================================================================
+// PHASE 8 - The rental itself: pickup, inspection, extension, return
+// ===========================================================================
+
+enum RentalStatus {
+  /// Vehicle handed over, rental running.
+  ACTIVE
+  /// Vehicle back, awaiting the return inspection to be finished.
+  RETURNED
+  /// Inspection done, charges settled.
+  CLOSED
+}
+
+/// BRD 25 names the shots staff should take.
+enum InspectionType {
+  PICKUP
+  RETURN
+}
+
+enum InspectionPhotoType {
+  FRONT
+  REAR
+  LEFT_SIDE
+  RIGHT_SIDE
+  INTERIOR
+  DASHBOARD
+  ODOMETER
+  DAMAGE
+  OTHER
+}
+
+/// Extension requests (BRD 23).
+enum ExtensionStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  /// Approved and the extra rental has been paid.
+  PAID
+}
+
+/// Charges raised at return, before they touch the deposit (BRD 17 and 26).
+enum ChargeType {
+  LATE_RETURN
+  EXCESS_MILEAGE
+  FUEL
+  CLEANING
+  DAMAGE
+  OTHER
+}
+
+enum ChargeStatus {
+  /// Calculated, not yet applied to the deposit or invoiced.
+  PENDING
+  /// Taken from the security deposit.
+  SETTLED_FROM_DEPOSIT
+  /// Beyond the deposit; billed separately.
+  INVOICED
+  /// Written off by an admin.
+  WAIVED
+}
+
+/// The rental itself - created when the vehicle is handed over.
+///
+/// Separate from `bookings` because a booking is an AGREEMENT and a rental is
+/// what actually happened. They usually match; when they do not - the customer
+/// collected two hours late, returned a day early, drove 800km - it is the
+/// rental that records reality, and the difference is what gets charged.
+model Rental {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @unique @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  status RentalStatus @default(ACTIVE)
+
+  /// When the keys actually changed hands, not when they were due to.
+  pickedUpAt DateTime  @db.Timestamptz(3)
+  returnedAt DateTime? @db.Timestamptz(3)
+
+  pickupMileage     Int
+  returnMileage     Int?
+  /// Percentage, 0-100. BRD 30 records fuel at both ends.
+  pickupFuelPercent Int
+  returnFuelPercent Int?
+
+  /// Staff who handled each end.
+  handedOverById String? @db.Uuid
+  handedOverBy   User?   @relation("RentalHandover", fields: [handedOverById], references: [id], onDelete: SetNull)
+  receivedById   String? @db.Uuid
+  receivedBy     User?   @relation("RentalReceipt", fields: [receivedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inspections VehicleInspection[]
+
+  @@index([status])
+  @@map("rentals")
+}
+
+/// A condition record at one end of the rental (BRD 24, 25 and 26).
+///
+/// Two of these per rental: one at PICKUP, one at RETURN. Comparing them is
+/// what turns "the customer says the scratch was already there" into an
+/// answerable question rather than an argument.
+model VehicleInspection {
+  id       String         @id @default(uuid()) @db.Uuid
+  rentalId String         @db.Uuid
+  rental   Rental         @relation(fields: [rentalId], references: [id], onDelete: Cascade)
+  type     InspectionType
+
+  mileage     Int
+  fuelPercent Int
+
+  /// Free text: dents, scratches, anything worth writing down.
+  conditionNotes String?
+  /// BRD 26 asks for cleaning condition at return.
+  cleanliness    String?
+
+  /// What was in the car, e.g. ["spare tyre","jack","child seat"]. JSON
+  /// because BRD 24 says "accessories" without fixing a list, and the client
+  /// has not confirmed one.
+  accessories Json?
+
+  /// Damage already present at pickup - the baseline the return is judged
+  /// against. Recorded at BOTH ends: at return this is the NEW damage.
+  damageNotes String?
+
+  /// Staff member who carried out the inspection.
+  inspectedById String? @db.Uuid
+  inspectedBy   User?   @relation("InspectionStaff", fields: [inspectedById], references: [id], onDelete: SetNull)
+
+  /// Set at pickup when staff confirmed the customer's identity (BRD 24).
+  customerVerified Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  photos InspectionPhoto[]
+
+  @@unique([rentalId, type])
+  @@index([rentalId])
+  @@map("vehicle_inspections")
+}
+
+/// Evidence. BRD 25 lists the recommended shots.
+///
+/// PUBLIC storage, unlike customer documents: these are photographs of a car,
+/// not of anybody's passport, and staff need to view them quickly on a phone
+/// at the counter.
+model InspectionPhoto {
+  id           String            @id @default(uuid()) @db.Uuid
+  inspectionId String            @db.Uuid
+  inspection   VehicleInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  type       InspectionPhotoType @default(OTHER)
+  storageKey String
+  caption    String?
+  sizeBytes  Int?
+  mimeType   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([inspectionId])
+  @@map("inspection_photos")
+}
+
+/// A request to keep the vehicle longer (BRD 23).
+model BookingExtension {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  /// Snapshot of the return time being extended FROM, so the history reads
+  /// correctly even after the booking's own returnAt moves.
+  originalReturnAt  DateTime @db.Timestamptz(3)
+  requestedReturnAt DateTime @db.Timestamptz(3)
+
+  status ExtensionStatus @default(REQUESTED)
+
+  /// Extra billable days and what they cost, priced when the request is made.
+  additionalDays   Int
+  additionalAmount Decimal @db.Decimal(10, 2)
+  currency         String  @default("AED")
+
+  /// Why an extension was refused - usually because the car is booked next.
+  rejectionReason String?
+
+  reviewedById String?   @db.Uuid
+  reviewedBy   User?     @relation("ExtensionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([status])
+  @@map("booking_extensions")
+}
+
+/// A charge raised after the vehicle comes back (BRD 17 and 26).
+///
+/// Kept SEPARATE from the deposit ledger on purpose. A charge is a decision -
+/// "the car came back 3 hours late, that is one extra day" - while a deposit
+/// transaction is a movement of money. One charge may be settled from the
+/// deposit, invoiced, or waived, and the record of the decision should survive
+/// whichever happens.
+model AdditionalCharge {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  type   ChargeType
+  status ChargeStatus @default(PENDING)
+
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("AED")
+
+  /// What the customer is told, e.g. "Returned 3h late (1 extra day)".
+  description String
+  /// How the figure was reached, kept for disputes.
+  calculation Json?
+
+  createdById String? @db.Uuid
+  createdBy   User?   @relation("ChargeCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([status])
+  @@map("additional_charges")
 }

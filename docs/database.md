@@ -101,7 +101,7 @@ Critical indexes for the overlap query:
 never an edited number. When a customer disputes a deduction, the ledger is the
 answer.
 
-### Phase 8 — the rental itself
+### Phase 8 — the rental itself (done)
 | Table | Purpose |
 | --- | --- |
 | `rentals` | The active rental created at pickup. |

@@ -9,7 +9,7 @@ document requirements — are **configurable settings, not hardcoded numbers**.
 
 ## Status
 
-**Phase 7 complete — Payments, refunds & deposits.** See
+**Phase 8 complete — Rental lifecycle.** See
 [docs/development-plan.md](docs/development-plan.md) for the roadmap.
 
 Done so far: monorepo foundation and health checks; JWT auth with
@@ -22,7 +22,9 @@ document upload and a staff verification workflow; and the booking module —
 creation in a serializable transaction with server-computed pricing, the full
 status lifecycle, and cancellation against a configurable policy; and
 payments — webhook-only confirmation with signature and amount verification,
-refunds, and an append-only security-deposit ledger.
+refunds, and an append-only security-deposit ledger; and the rental
+lifecycle — handover, photographic inspections at both ends, extensions with
+an availability re-check, and return charges that feed the deposit ledger.
 
 ## Stack
 

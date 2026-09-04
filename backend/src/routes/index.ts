@@ -22,6 +22,7 @@ import { bookingRoutes } from '../modules/bookings/routes';
 import { paymentRoutes } from '../modules/payments/routes';
 import { mountMockCheckout } from '../modules/payments/mockCheckout';
 import { depositRoutes } from '../modules/deposits/routes';
+import { rentalRoutes } from '../modules/rentals/routes';
 import { pricingRoutes } from '../modules/pricing/routes';
 import { pricingAdminRoutes } from '../modules/pricing/adminRoutes';
 
@@ -40,6 +41,7 @@ router.use('/documents', documentRoutes);
 router.use('/bookings', bookingRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/deposits', depositRoutes);
+router.use('/rentals', rentalRoutes);
 
 // Development-only checkout simulator. No-op unless PAYMENT_PROVIDER=mock.
 mountMockCheckout(router);
@@ -49,8 +51,6 @@ router.use('/pricing', pricingRoutes);
 router.use('/admin/pricing', pricingAdminRoutes);
 
 // --- Mounted in later phases -------------------------------------------
-// router.use('/rentals', rentalRoutes);         // Phase 8
-// router.use('/inspections', inspectionRoutes); // Phase 8
 // router.use('/damages', damageRoutes);         // Phase 9
 // router.use('/fines', fineRoutes);             // Phase 9
 // router.use('/tolls', tollRoutes);             // Phase 9

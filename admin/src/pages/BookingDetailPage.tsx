@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import BookingStatusBadge from '../components/BookingStatusBadge';
 import DepositManager from '../components/DepositManager';
+import RentalPanel from '../components/RentalPanel';
 import {
   NEXT_STATUSES,
   useAdminBooking,
@@ -234,6 +235,8 @@ export default function BookingDetailPage() {
           </div>
         </dl>
       </section>
+
+      <RentalPanel booking={booking} vehicleMileage={booking.vehicle.currentMileage ?? 0} />
 
       <DepositManager bookingId={booking.id} />
 

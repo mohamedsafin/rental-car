@@ -33,9 +33,9 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: 'Rentals',
     items: [
       { label: 'Bookings', to: '/bookings' },
-      { label: 'Pickups', phase: 'Phase 8' },
-      { label: 'Returns', phase: 'Phase 8' },
-      { label: 'Inspections', phase: 'Phase 8' },
+      { label: 'Pickups', phase: 'see a booking' },
+      { label: 'Returns', phase: 'see a booking' },
+      { label: 'Inspections', phase: 'see a booking' },
     ],
   },
   {
