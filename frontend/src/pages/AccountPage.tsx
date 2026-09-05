@@ -3,23 +3,21 @@
  * ---------------------------------------------------------------------------
  * The signed-in customer's account area (BRD 22).
  *
- * Phase 2 shows the profile and proves the session works. The bookings,
- * payments, invoices and documents sections need their modules to exist first,
- * so they are listed here as placeholders with the phase that delivers them.
+ * Verification status is shown as a badge, not left to be inferred from the
+ * wording of a paragraph. It is the one thing here that changes because of
+ * somebody ELSE's action - a staff member approving a document - so a customer
+ * arriving on this page needs to see the answer, not read for it.
  */
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../features/customer/useCustomer';
 
-const PLANNED_SECTIONS = [
-  { title: 'Payments & refunds', detail: 'Payment history and refund status', phase: 'Phase 7' },
-  { title: 'Invoices', detail: 'View and download invoices', phase: 'Phase 10' },
-];
-
 export default function AccountPage() {
   const { user, logout } = useAuth();
   const { data: profile } = useMyProfile();
   if (!user) return null;
+
+  const verified = profile?.verification.isVerified ?? false;
 
   return (
     <div className="space-y-6">
@@ -49,13 +47,32 @@ export default function AccountPage() {
         </dl>
       </section>
 
-      <section className="rounded-lg border border-ink-200 bg-white p-5">
+      <section
+        className={
+          verified
+            ? 'rounded-lg border border-emerald-200 bg-emerald-50/60 p-5'
+            : 'rounded-lg border border-ink-200 bg-white p-5'
+        }
+      >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="font-semibold text-ink-900">My documents</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="font-semibold text-ink-900">My documents</h2>
+              {profile && (
+                <span
+                  className={
+                    verified
+                      ? 'rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-semibold text-white'
+                      : 'rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800'
+                  }
+                >
+                  {verified ? 'Verified' : 'Not verified yet'}
+                </span>
+              )}
+            </div>
             <p className="mt-1 text-sm text-ink-600">
-              {profile?.verification.isVerified
-                ? 'All required documents are approved.'
+              {verified
+                ? 'All required documents are approved. You can book and pay straight away.'
                 : 'Upload your ID and licence so we can verify you before your first rental.'}
             </p>
           </div>
@@ -63,7 +80,7 @@ export default function AccountPage() {
             to="/account/documents"
             className="rounded-md bg-ink-900 px-4 py-2 text-sm font-medium text-white hover:bg-ink-800"
           >
-            {profile?.verification.isVerified ? 'View documents' : 'Upload documents'}
+            {verified ? 'View documents' : 'Upload documents'}
           </Link>
         </div>
       </section>
@@ -85,21 +102,23 @@ export default function AccountPage() {
         </div>
       </section>
 
-      <section>
-        <h2 className="font-semibold text-ink-900">Coming in later phases</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {PLANNED_SECTIONS.map((section) => (
-            <div key={section.title} className="rounded-lg border border-dashed border-ink-300 bg-white p-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-ink-700">{section.title}</p>
-                <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-500">
-                  {section.phase}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-ink-500">{section.detail}</p>
-            </div>
-          ))}
-        </div>
+      {/*
+        Payments and invoices are NOT a separate area. Both belong to a
+        specific booking - "which rental was this refund for?" is the first
+        question anyone asks - so they live on the booking's own page rather
+        than in a global list that would immediately need a booking column.
+      */}
+      <section className="rounded-lg border border-ink-200 bg-white p-5">
+        <h2 className="font-semibold text-ink-900">Payments and invoices</h2>
+        <p className="mt-1 text-sm text-ink-600">
+          Payment history, deposits and downloadable invoices are shown on each booking.
+        </p>
+        <Link
+          to="/account/bookings"
+          className="mt-3 inline-block text-sm font-medium text-ink-900 underline underline-offset-4"
+        >
+          Open a booking to see its payments and invoices
+        </Link>
       </section>
     </div>
   );

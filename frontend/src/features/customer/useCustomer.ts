@@ -12,6 +12,18 @@ export function useMyProfile() {
   return useQuery<ProfileResponse, NormalisedApiError>({
     queryKey: ['my-profile'],
     queryFn: customerService.getMyProfile,
+    /*
+     * Refetch when the tab regains focus, overriding the app-wide default.
+     *
+     * Verification status is the one thing on this page that changes because
+     * of an action the customer did NOT take: a staff member approves their
+     * documents in another system entirely. With the global
+     * `refetchOnWindowFocus: false`, a customer sitting on this tab while
+     * their passport was approved would keep reading "upload your ID" until
+     * they happened to navigate or hard-reload - and nothing on screen would
+     * suggest they should.
+     */
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -27,6 +39,9 @@ export function useMyDocuments() {
   return useQuery<{ documents: CustomerDocument[] }, NormalisedApiError>({
     queryKey: ['my-documents'],
     queryFn: customerService.getMyDocuments,
+    // Same reason as the profile: an approval or rejection happens in the
+    // back office, so this list changes without the customer doing anything.
+    refetchOnWindowFocus: true,
   });
 }
 
