@@ -24,6 +24,10 @@
       "description": "Administrative configuration."
     },
     {
+      "name": "audit",
+      "description": ""
+    },
+    {
       "name": "auth",
       "description": "Registration, login, token refresh and password changes."
     },
@@ -106,6 +110,10 @@
     {
       "name": "reports",
       "description": "Revenue, bookings and fleet utilisation."
+    },
+    {
+      "name": "settings",
+      "description": ""
     },
     {
       "name": "users",
@@ -433,6 +441,76 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/audit/": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "GET /audit/",
+        "description": "Requires role: ADMIN.",
+        "operationId": "getAudit",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/audit/actions": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "GET /audit/actions",
+        "description": "Requires role: ADMIN.",
+        "operationId": "getAuditActions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
@@ -4885,6 +4963,90 @@
         }
       }
     },
+    "/settings/": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "GET /settings/",
+        "description": "Requires role: ADMIN or STAFF.",
+        "operationId": "getSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/settings/{key}": {
+      "patch": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "PATCH /settings/:key",
+        "description": "Requires role: ADMIN or STAFF.",
+        "operationId": "patchSettingsByKey",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The key."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
     "/users/": {
       "get": {
         "tags": [
@@ -5669,7 +5831,7 @@
   },
   "x-generation": {
     "note": "Paths are generated from the live router. Run `npm run openapi:generate` after adding a route.",
-    "routeCount": 131,
-    "undocumentedEndpoints": 91
+    "routeCount": 135,
+    "undocumentedEndpoints": 95
   }
 }

@@ -33,6 +33,8 @@ import { notificationRoutes } from '../modules/notifications/routes';
 import { reportRoutes } from '../modules/reports/routes';
 import { legalRoutes } from '../modules/legal/routes';
 import { docsRoutes } from '../modules/docs/routes';
+import { settingsRoutes } from '../modules/settings/routes';
+import { auditRoutes } from '../modules/audit/routes';
 
 /**
  * The mount table.
@@ -74,6 +76,13 @@ export const API_MOUNTS = {
   // Partly public: terms a customer must sign in to read are terms they
   // cannot read before deciding whether to sign up.
   '/legal': legalRoutes,
+  // Client-owned configuration. The pricing module also exposes a filtered
+  // view of these; this is the full set, including COMPANY - which holds the
+  // TRN every invoice warns about.
+  '/settings': settingsRoutes,
+  // Read-only, admin-only. The trail records who viewed which identity
+  // documents, so it is not staff-wide.
+  '/audit': auditRoutes,
 } as const;
 
 const router = Router();

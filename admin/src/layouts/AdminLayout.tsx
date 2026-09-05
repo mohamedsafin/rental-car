@@ -64,8 +64,8 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: 'Reports', to: '/reports' },
       { label: 'Notifications', to: '/notifications' },
       { label: 'Legal documents', to: '/legal', roles: ['ADMIN'] },
-      { label: 'Settings', phase: 'Phase 10' },
-      { label: 'Audit logs', phase: 'Phase 11' },
+      { label: 'Settings', to: '/settings' },
+      { label: 'Audit logs', to: '/audit', roles: ['ADMIN'] },
     ],
   },
 ];

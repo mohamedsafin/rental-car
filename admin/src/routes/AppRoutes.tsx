@@ -36,6 +36,8 @@ import CategoriesPage from '../pages/CategoriesPage';
 import PickupsPage from '../pages/PickupsPage';
 import ReturnsPage from '../pages/ReturnsPage';
 import InspectionsPage from '../pages/InspectionsPage';
+import SettingsPage from '../pages/SettingsPage';
+import AuditLogPage from '../pages/AuditLogPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 export default function AppRoutes() {
@@ -69,7 +71,8 @@ export default function AppRoutes() {
           <Route path="/pickups" element={<PickupsPage />} />
           <Route path="/returns" element={<ReturnsPage />} />
           <Route path="/inspections" element={<InspectionsPage />} />
-          {/* Phase 11: /settings, /audit-logs */}
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/audit" element={<AuditLogPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>
