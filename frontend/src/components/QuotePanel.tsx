@@ -15,7 +15,7 @@
  * The Book button sends only the CHOICE - vehicle, dates, services. The total
  * shown here is for the customer's benefit; the backend recomputes it.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PriceBreakdown from './PriceBreakdown';
 import { toIso, useAdditionalServices, useQuote } from '../features/booking/useBooking';
@@ -64,6 +64,17 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
   // somebody halfway through typing a perfectly good code.
   const [couponDraft, setCouponDraft] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState('');
+  /*
+   * A rejected code is remembered SEPARATELY from the quote's error state.
+   *
+   * The engine refuses the whole quote when a code does not apply - correctly,
+   * since it cannot price a booking it was asked to discount. But the panel is
+   * gated on `data`, so a customer who mistyped a code watched the price, the
+   * availability notice and the Book button all vanish, as though the site had
+   * broken. Now the code is dropped from the request and the reason is shown
+   * beside the field, leaving the quote intact.
+   */
+  const [rejectedCoupon, setRejectedCoupon] = useState<{ code: string; reason: string } | null>(null);
 
   const { data: serviceData } = useAdditionalServices();
 
@@ -85,8 +96,23 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
     returnAt: datesValid ? returnAt : null,
     services,
     pickupLocationId: initial?.pickupLocationId,
-    couponCode: appliedCoupon || undefined,
+    // Omit a code the engine has already refused, or every requote would fail
+    // again for the same reason and the price would stay hidden.
+    couponCode: appliedCoupon && appliedCoupon !== rejectedCoupon?.code ? appliedCoupon : undefined,
   });
+
+  /*
+   * Move a coupon failure out of the quote's error state and into its own.
+   * Dropping `appliedCoupon` here makes the next render request a quote
+   * without it, which succeeds - so the customer keeps their price and gains
+   * an explanation, instead of losing both.
+   */
+  useEffect(() => {
+    if (!isError || !appliedCoupon || appliedCoupon === rejectedCoupon?.code) return;
+
+    setRejectedCoupon({ code: appliedCoupon, reason: error.message });
+    setAppliedCoupon('');
+  }, [isError, error, appliedCoupon, rejectedCoupon]);
 
   return (
     <div className="space-y-4">
@@ -194,6 +220,7 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
               onClick={() => {
                 setAppliedCoupon('');
                 setCouponDraft('');
+                setRejectedCoupon(null);
               }}
               className="text-xs font-medium text-emerald-900 underline"
             >
@@ -205,7 +232,12 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
             <input
               id="couponCode"
               value={couponDraft}
-              onChange={(event) => setCouponDraft(event.target.value.toUpperCase())}
+              onChange={(event) => {
+                setCouponDraft(event.target.value.toUpperCase());
+                // Editing the code clears the previous verdict; it no longer
+                // describes what is in the box.
+                setRejectedCoupon(null);
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault();
@@ -231,14 +263,16 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
           rental" - which is far more use than "invalid code". Shown here
           rather than as a page-level error, next to the field that caused it.
         */}
-        {appliedCoupon && isError && (
+        {rejectedCoupon && (
           <p className="mt-2 text-sm text-red-700" role="alert">
-            {error.message}
+            {rejectedCoupon.reason}
           </p>
         )}
       </div>
 
-      {isError && !appliedCoupon && (
+      {/* A genuine quote failure - bad dates, vehicle gone. A refused promo
+          code is handled above and never reaches here. */}
+      {isError && !appliedCoupon && !rejectedCoupon && (
         <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error.message}
         </div>

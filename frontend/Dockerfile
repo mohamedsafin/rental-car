@@ -21,8 +21,10 @@ COPY frontend/package.json ./frontend/
 COPY admin/package.json ./admin/
 RUN npm ci --workspace frontend --include-workspace-root
 
+# The app's own tsconfig comes with this directory. There is deliberately no
+# root-level tsconfig to copy - each workspace stands alone - and a COPY whose
+# glob matches nothing FAILS the build rather than being skipped.
 COPY frontend ./frontend
-COPY tsconfig*.json ./
 
 ARG VITE_API_URL=http://localhost:4000/api/v1
 ARG VITE_APP_NAME="UAE Car Rental"

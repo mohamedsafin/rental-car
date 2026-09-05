@@ -9,20 +9,27 @@
 # environment variable. That means one image per environment, which is the
 # honest trade-off of a static single-page app.
 #
-# Built from the repository root:
+# Built from the repository root, not this directory:
 #   docker build -f admin/Dockerfile --build-arg VITE_API_URL=... -t car-rental-admin .
+# because npm workspaces resolve from the root package-lock.json.
 
 FROM node:22-alpine AS build
 WORKDIR /app
 
+# EVERY workspace manifest, not just this one. `npm ci` validates the whole
+# lockfile against the workspaces declared in the root package.json, and a
+# missing sibling manifest fails the install even though this image never
+# builds that sibling.
 COPY package.json package-lock.json ./
 COPY backend/package.json ./backend/
-COPY admin/package.json ./admin/
+COPY frontend/package.json ./frontend/
 COPY admin/package.json ./admin/
 RUN npm ci --workspace admin --include-workspace-root
 
+# The app's own tsconfig comes with this directory. There is deliberately no
+# root-level tsconfig to copy - each workspace stands alone - and a COPY whose
+# glob matches nothing FAILS the build rather than being skipped.
 COPY admin ./admin
-COPY tsconfig*.json ./
 
 ARG VITE_API_URL=http://localhost:4000/api/v1
 ARG VITE_APP_NAME="UAE Car Rental Admin"

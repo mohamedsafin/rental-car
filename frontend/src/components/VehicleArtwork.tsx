@@ -17,6 +17,8 @@
  * schema change is needed to make the fleet look presentable.
  */
 
+import { useId } from 'react';
+
 type BodyStyle = 'coupe' | 'suv' | 'sedan' | 'hatch';
 
 interface VehicleArtworkProps {
@@ -85,9 +87,19 @@ export default function VehicleArtwork({
   const tint = TINTS[categorySlug] ?? FALLBACK_TINT;
   const style = bodyStyleFor(categorySlug, doors, seats);
   const shape = SILHOUETTES[style];
-  // The gradient id must be unique per instance or several cards on one page
-  // share (and fight over) the same definition.
-  const gradientId = `art-${categorySlug}-${style}`;
+  /*
+   * The gradient id must be unique PER INSTANCE. It used to be derived from
+   * the category and body style, which meant every SUV card in a twelve-card
+   * grid emitted id="art-suv-suv" - a dozen duplicate DOM ids, which is
+   * invalid HTML and leaves `url(#...)` resolving to whichever element the
+   * browser happened to index first. It looked fine only because same-category
+   * tints are identical; a per-vehicle tint would have exposed it immediately.
+   *
+   * useId gives React's own collision-free value, stable across re-renders and
+   * consistent between server and client.
+   */
+  const reactId = useId();
+  const gradientId = `art${reactId.replace(/:/g, '')}`;
 
   return (
     <svg
