@@ -304,7 +304,9 @@ describe('rate limiting - switched ON for this block', () => {
     }
 
     expect(limited).toBe(true);
-  });
+    // Up to 14 login attempts, each one a bcrypt compare at cost 12. Same
+    // reasoning as the lockout test: budget the timeout for the work.
+  }, 30_000);
 
   it('still answers health checks while limited', async () => {
     // An uptime monitor must not be locked out by someone else's brute force,

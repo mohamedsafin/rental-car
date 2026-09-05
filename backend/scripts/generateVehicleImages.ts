@@ -9,26 +9,33 @@
  * WHY THESE ARE DRAWN, NOT PHOTOGRAPHED
  *
  * There is no licensed photograph of *this* Nissan Patrol, in *this* colour,
- * available to this script. The two obvious shortcuts are both worse than
- * drawing:
+ * available to this script. The two obvious shortcuts are both worse:
  *
- *   - Stock photography would put a picture of a car that is NOT the car on
- *     the page. A customer notices that at handover, and it is a licensing
+ *   - Stock photography puts a picture of a car that is NOT the car on the
+ *     page. A customer notices that at handover, and it is a licensing
  *     problem besides.
  *   - Leaving them blank makes a real fleet look broken.
  *
- * So each car gets an illustration rendered from its OWN row - body style from
- * its doors and category, paint from its `color` column. A white Land Cruiser
- * and a red Mustang look different because they ARE different, not because a
- * placeholder was tinted at random. Nobody will mistake one for a photo, which
- * is the point: an honest drawing beats a misleading photograph.
+ * So each car is drawn from its OWN row: silhouette from its body style, paint
+ * from its `color` column. Real photos replace these the moment staff upload
+ * any - the card prefers `primaryImageUrl`.
  *
- * Real photos replace these the moment staff upload any - the card prefers
- * `primaryImageUrl`, and the admin image manager overwrites this row.
+ * HOW THE SHAPES WORK
  *
- * NO NEW DEPENDENCIES. The PNG encoder below is ~60 lines of zlib and CRC32,
- * which is cheaper than adding a native image library to the deployment for
- * one script that runs once.
+ * The first version composed a rounded rectangle and a trapezoid, which meant
+ * a Mustang and a Land Cruiser came out as the same generic estate car. Body
+ * style was in the data and invisible in the picture.
+ *
+ * Now each style is a hand-placed POLYGON traced along the real silhouette -
+ * bonnet line, windscreen rake, roof, rear - and filled by point-in-polygon
+ * test. A coupe gets a long bonnet, a steeply raked screen and a fastback
+ * tail; an SUV gets an upright greenhouse, a tall body and visible ground
+ * clearance. They are recognisable at thumbnail size, which is the only size
+ * that matters on a listing card.
+ *
+ * NO NEW DEPENDENCIES. The PNG encoder is ~40 lines of zlib and CRC32, cheaper
+ * than adding a native image library to the deployment for a script that runs
+ * once.
  */
 import zlib from 'node:zlib';
 import { prisma } from '../src/config/prisma';
@@ -55,11 +62,9 @@ function crc32(buffer: Buffer): number {
 function chunk(type: string, data: Buffer): Buffer {
   const length = Buffer.alloc(4);
   length.writeUInt32BE(data.length);
-
   const typed = Buffer.concat([Buffer.from(type, 'ascii'), data]);
   const crc = Buffer.alloc(4);
   crc.writeUInt32BE(crc32(typed));
-
   return Buffer.concat([length, typed, crc]);
 }
 
@@ -68,14 +73,9 @@ function encodePng(width: number, height: number, rgb: Uint8Array): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
-  header[8] = 8; // bit depth
-  header[9] = 2; // colour type: truecolour
-  header[10] = 0; // deflate
-  header[11] = 0; // adaptive filtering
-  header[12] = 0; // no interlace
+  header[8] = 8;
+  header[9] = 2;
 
-  // Each scanline is prefixed with its filter byte. 0 = None, which compresses
-  // perfectly well here because the image is mostly flat colour and gradients.
   const stride = width * 3;
   const raw = Buffer.alloc((stride + 1) * height);
   for (let y = 0; y < height; y += 1) {
@@ -91,51 +91,51 @@ function encodePng(width: number, height: number, rgb: Uint8Array): Buffer {
   ]);
 }
 
-// --- Drawing ---------------------------------------------------------------
+// --- Colour ----------------------------------------------------------------
 
 const WIDTH = 960;
 const HEIGHT = 600;
 
 type Rgb = [number, number, number];
+type Point = [number, number];
 
 /**
  * Paint from the vehicle's own `color` column.
  *
- * Matched on keywords because the column is free text written by whoever added
- * the car - "Guards Red", "Santorini Black", "Midnight Silver". Anything
- * unrecognised falls back to a neutral graphite rather than guessing.
+ * Matched on keywords because the column is free text - "Guards Red",
+ * "Santorini Black", "Midnight Silver". Anything unrecognised falls back to a
+ * neutral graphite rather than guessing.
  */
 function paintFor(color: string | null): Rgb {
   const value = (color ?? '').toLowerCase();
   const table: [string, Rgb][] = [
-    ['white', [238, 240, 243]],
-    ['silver', [176, 182, 190]],
-    ['titanium', [166, 170, 174]],
-    ['grey', [104, 110, 120]],
-    ['gray', [104, 110, 120]],
-    ['black', [38, 42, 50]],
-    ['blue', [42, 88, 158]],
-    ['red', [176, 42, 46]],
-    ['orange', [214, 106, 34]],
-    ['green', [46, 108, 78]],
-    ['yellow', [222, 176, 44]],
-    ['brown', [104, 74, 54]],
-    ['beige', [206, 192, 168]],
+    ['pearl white', [242, 243, 245]],
+    ['white', [232, 235, 239]],
+    ['silver', [172, 179, 188]],
+    ['titanium', [158, 163, 168]],
+    ['grey', [96, 103, 113]],
+    ['gray', [96, 103, 113]],
+    ['black', [32, 36, 44]],
+    ['blue', [38, 84, 156]],
+    ['red', [172, 38, 44]],
+    ['orange', [212, 102, 32]],
+    ['green', [42, 104, 74]],
+    ['yellow', [220, 172, 40]],
+    ['brown', [100, 70, 50]],
+    ['beige', [204, 190, 166]],
   ];
-
   for (const [needle, rgb] of table) if (value.includes(needle)) return rgb;
-  return [92, 98, 108];
+  return [88, 94, 104];
 }
 
-/** Backdrop tint per category, so a grid of cards is not one flat colour. */
 const BACKDROPS: Record<string, [Rgb, Rgb]> = {
-  economy: [[238, 242, 247], [214, 223, 234]],
-  sedan: [[233, 239, 248], [206, 219, 236]],
-  suv: [[234, 241, 236], [209, 226, 216]],
-  luxury: [[243, 238, 230], [227, 214, 192]],
-  sports: [[247, 236, 236], [233, 208, 208]],
-  electric: [[232, 242, 245], [201, 224, 234]],
-  premium: [[239, 236, 245], [217, 209, 234]],
+  economy: [[240, 244, 249], [216, 225, 236]],
+  sedan: [[236, 242, 250], [208, 221, 238]],
+  suv: [[236, 243, 238], [211, 228, 218]],
+  luxury: [[245, 240, 232], [229, 216, 194]],
+  sports: [[249, 238, 238], [235, 210, 210]],
+  electric: [[234, 244, 247], [203, 226, 236]],
+  premium: [[241, 238, 247], [219, 211, 236]],
 };
 
 function mix(a: Rgb, b: Rgb, t: number): Rgb {
@@ -147,107 +147,158 @@ function mix(a: Rgb, b: Rgb, t: number): Rgb {
 }
 
 function shade(rgb: Rgb, amount: number): Rgb {
-  const target: Rgb = amount > 0 ? [255, 255, 255] : [0, 0, 0];
-  return mix(rgb, target, Math.abs(amount));
+  return mix(rgb, amount > 0 ? [255, 255, 255] : [0, 0, 0], Math.abs(amount));
 }
+
+// --- Silhouettes -----------------------------------------------------------
 
 type BodyStyle = 'coupe' | 'suv' | 'sedan' | 'hatch';
 
+/**
+ * DOOR COUNT decides the silhouette, not the marketing category.
+ *
+ * Keying off the category got five cars wrong: a Range Rover Sport, an Audi
+ * Q5, a BMW X3, a Tesla Model Y and a BYD Atto 3 are all filed under `luxury`,
+ * `premium` or `electric` - and were therefore drawn as saloons. They are
+ * unmistakably SUVs, and a customer looking at the card knows it.
+ *
+ * Doors are physical. Two is a coupe. Five means a tailgate, which is an SUV
+ * or a hatchback - and the category separates those two, which is the one
+ * thing it is actually reliable for. Four doors and a separate boot is a
+ * saloon.
+ */
 function bodyStyleFor(categorySlug: string, doors: number, seats: number): BodyStyle {
   if (doors <= 2 || categorySlug === 'sports') return 'coupe';
-  if (categorySlug === 'suv' || seats >= 7) return 'suv';
-  if (categorySlug === 'economy') return 'hatch';
+  if (doors >= 5 || seats >= 7 || categorySlug === 'suv') {
+    return categorySlug === 'economy' ? 'hatch' : 'suv';
+  }
   return 'sedan';
 }
 
-interface Geometry {
-  bodyTop: number;
-  bodyBottom: number;
-  bodyLeft: number;
-  bodyRight: number;
-  roofTop: number;
-  roofLeft: number;
-  roofRight: number;
-  wheelY: number;
-  wheelR: number;
-  wheelXs: [number, number];
+interface Shape {
+  /** Outer silhouette, traced clockwise from the front bumper. */
+  body: Point[];
+  /** Glass areas, drawn over the body. */
+  windows: Point[][];
+  wheels: { x: number; y: number; r: number }[];
+  /** Where the doors meet, drawn as a shut line. */
+  doorLines: number[];
+  headlight: Point[];
+  taillight: Point[];
+  /** Y of the crease running along the flank - the shoulder highlight. */
+  shoulderY: number;
 }
 
-function geometryFor(style: BodyStyle): Geometry {
-  const base: Geometry = {
-    bodyTop: 300,
-    bodyBottom: 430,
-    bodyLeft: 110,
-    bodyRight: 850,
-    roofTop: 200,
-    roofLeft: 300,
-    roofRight: 660,
-    wheelY: 432,
-    wheelR: 62,
-    wheelXs: [270, 700],
-  };
+/**
+ * Hand-traced profiles. The numbers are deliberate, not parametric: a real
+ * car's proportions are not a formula, and four hand-placed outlines look far
+ * more like cars than one shape with four multipliers.
+ */
+const SHAPES: Record<BodyStyle, Shape> = {
+  sedan: {
+    body: [
+      [96, 404], [104, 366], [150, 350], [250, 342], [318, 336],
+      [392, 246], [520, 236], [610, 244], [676, 330], [790, 340],
+      [858, 356], [872, 380], [874, 424], [846, 436], [110, 436], [92, 424],
+    ],
+    windows: [
+      [[336, 330], [396, 262], [498, 254], [498, 330]],
+      [[514, 254], [600, 260], [656, 330], [514, 330]],
+    ],
+    wheels: [
+      { x: 262, y: 436, r: 62 },
+      { x: 706, y: 436, r: 62 },
+    ],
+    doorLines: [506],
+    headlight: [[104, 366], [150, 352], [156, 372], [106, 382]],
+    taillight: [[812, 344], [862, 358], [860, 380], [810, 372]],
+    shoulderY: 372,
+  },
 
-  switch (style) {
-    case 'suv':
-      return { ...base, bodyTop: 275, roofTop: 160, roofLeft: 275, roofRight: 690, wheelR: 70 };
-    case 'coupe':
-      return { ...base, bodyTop: 318, roofTop: 232, roofLeft: 330, roofRight: 630, wheelR: 64 };
-    case 'hatch':
-      return { ...base, bodyRight: 800, roofTop: 208, roofLeft: 300, roofRight: 640, wheelXs: [265, 660] };
-    default:
-      return base;
+  suv: {
+    body: [
+      [92, 380], [100, 330], [146, 306], [246, 298], [306, 292],
+      [352, 196], [688, 192], [752, 288], [846, 296], [872, 318],
+      [876, 410], [844, 424], [116, 424], [90, 408],
+    ],
+    windows: [
+      [[326, 284], [358, 214], [508, 210], [508, 284]],
+      [[524, 210], [676, 212], [730, 284], [524, 284]],
+    ],
+    wheels: [
+      { x: 258, y: 430, r: 74 },
+      { x: 712, y: 430, r: 74 },
+    ],
+    doorLines: [516],
+    headlight: [[100, 330], [148, 310], [154, 334], [102, 348]],
+    taillight: [[806, 300], [864, 320], [862, 346], [804, 332]],
+    shoulderY: 336,
+  },
+
+  coupe: {
+    body: [
+      [82, 418], [92, 388], [160, 368], [286, 356], [352, 348],
+      [446, 282], [556, 278], [648, 300], [768, 344], [846, 366],
+      [870, 388], [872, 428], [842, 440], [104, 440], [80, 428],
+    ],
+    windows: [
+      [[372, 342], [452, 296], [536, 292], [536, 342]],
+      [[550, 292], [636, 310], [690, 342], [550, 342]],
+    ],
+    wheels: [
+      { x: 248, y: 440, r: 66 },
+      { x: 704, y: 440, r: 66 },
+    ],
+    doorLines: [544],
+    headlight: [[92, 388], [156, 370], [162, 390], [94, 402]],
+    taillight: [[800, 356], [852, 370], [850, 392], [798, 380]],
+    shoulderY: 392,
+  },
+
+  hatch: {
+    body: [
+      [110, 398], [118, 362], [162, 346], [252, 338], [312, 332],
+      [378, 248], [560, 244], [640, 250], [704, 330], [762, 344],
+      [782, 366], [784, 420], [756, 432], [126, 432], [106, 420],
+    ],
+    windows: [
+      [[330, 326], [382, 264], [486, 260], [486, 326]],
+      [[502, 260], [630, 266], [686, 326], [502, 326]],
+    ],
+    wheels: [
+      { x: 258, y: 432, r: 60 },
+      { x: 654, y: 432, r: 60 },
+    ],
+    doorLines: [494],
+    headlight: [[118, 362], [162, 348], [168, 368], [120, 378]],
+    taillight: [[730, 348], [776, 364], [774, 386], [728, 374]],
+    shoulderY: 368,
+  },
+};
+
+/** Ray casting. Fast enough here, and exact at the edges once supersampled. */
+function inPolygon(x: number, y: number, polygon: Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const [xi, yi] = polygon[i]!;
+    const [xj, yj] = polygon[j]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
   }
+  return inside;
 }
 
-/** Is (x, y) inside the car body? Rounded at the corners so it reads as a car. */
-function insideBody(x: number, y: number, g: Geometry): boolean {
-  if (y < g.bodyTop || y > g.bodyBottom) return false;
-
-  const radius = 46;
-  const left = g.bodyLeft;
-  const right = g.bodyRight;
-  if (x < left || x > right) return false;
-
-  // Round the four corners.
-  for (const [cx, cy] of [
-    [left + radius, g.bodyTop + radius],
-    [right - radius, g.bodyTop + radius],
-    [left + radius, g.bodyBottom - radius],
-    [right - radius, g.bodyBottom - radius],
-  ] as [number, number][]) {
-    const outsideX = (cx < left + radius && x < cx) || (cx > right - radius && x > cx);
-    const outsideY = (cy < g.bodyTop + radius && y < cy) || (cy > g.bodyBottom - radius && y > cy);
-    if (outsideX && outsideY && (x - cx) ** 2 + (y - cy) ** 2 > radius ** 2) return false;
+function boundsOf(polygon: Point[]): [number, number, number, number] {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of polygon) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
   }
-
-  return true;
-}
-
-/** The cabin: a trapezoid narrowing towards the roof. */
-function insideCabin(x: number, y: number, g: Geometry): boolean {
-  if (y < g.roofTop || y > g.bodyTop + 4) return false;
-
-  const t = (y - g.roofTop) / (g.bodyTop - g.roofTop);
-  // Widens as it descends, so the pillars rake like a real windscreen.
-  const left = g.roofLeft - (g.roofLeft - (g.bodyLeft + 90)) * t;
-  const right = g.roofRight + (g.bodyRight - 90 - g.roofRight) * t;
-
-  return x >= left && x <= right;
-}
-
-function insideWindow(x: number, y: number, g: Geometry): boolean {
-  const inset = 16;
-  if (y < g.roofTop + inset || y > g.bodyTop - 14) return false;
-
-  const t = (y - g.roofTop) / (g.bodyTop - g.roofTop);
-  const left = g.roofLeft - (g.roofLeft - (g.bodyLeft + 90)) * t + inset;
-  const right = g.roofRight + (g.bodyRight - 90 - g.roofRight) * t - inset;
-
-  // A pillar splitting the glass into two windows.
-  const middle = (left + right) / 2;
-  if (Math.abs(x - middle) < 9) return false;
-
-  return x >= left && x <= right;
+  return [minX, minY, maxX, maxY];
 }
 
 function renderVehicle(input: {
@@ -257,18 +308,22 @@ function renderVehicle(input: {
   color: string | null;
 }): Buffer {
   const style = bodyStyleFor(input.categorySlug, input.doors, input.seats);
-  const g = geometryFor(style);
+  const shape = SHAPES[style];
   const paint = paintFor(input.color);
   const [backTop, backBottom] = BACKDROPS[input.categorySlug] ?? [
-    [238, 240, 244],
-    [216, 220, 227],
+    [240, 242, 246],
+    [218, 222, 229],
   ];
 
-  const pixels = new Uint8Array(WIDTH * HEIGHT * 3);
+  // Precomputed so the inner loop can skip most of the canvas cheaply.
+  const bodyBounds = boundsOf(shape.body);
+  const windowBounds = shape.windows.map(boundsOf);
 
-  // 2x2 supersampling. Without it every edge is a staircase, which on a car
-  // silhouette is the difference between "drawn" and "broken".
-  const SAMPLES = [
+  const bodyTop = bodyBounds[1];
+  const bodyBottom = bodyBounds[3];
+
+  const pixels = new Uint8Array(WIDTH * HEIGHT * 3);
+  const SAMPLES: Point[] = [
     [0.25, 0.25],
     [0.75, 0.25],
     [0.25, 0.75],
@@ -277,59 +332,93 @@ function renderVehicle(input: {
 
   for (let y = 0; y < HEIGHT; y += 1) {
     for (let x = 0; x < WIDTH; x += 1) {
-      const backdrop = mix(backTop, backBottom, y / HEIGHT);
-
       let r = 0;
-      let gg = 0;
+      let g = 0;
       let b = 0;
 
       for (const [dx, dy] of SAMPLES) {
         const px = x + dx;
         const py = y + dy;
-        let sample: Rgb = backdrop;
+        let sample: Rgb = mix(backTop, backBottom, y / HEIGHT);
 
-        // Ground shadow, softened towards its edge.
-        const shadowDx = (px - 480) / 330;
-        const shadowDy = (py - 500) / 26;
-        const shadow = shadowDx * shadowDx + shadowDy * shadowDy;
-        if (shadow < 1) sample = mix(sample, [40, 46, 56], 0.20 * (1 - shadow));
+        // Ground shadow.
+        const sx = (px - 480) / 350;
+        const sy = (py - 508) / 24;
+        const shadow = sx * sx + sy * sy;
+        if (shadow < 1) sample = mix(sample, [38, 44, 54], 0.22 * (1 - shadow));
 
-        // Wheels sit above the body so the arches read correctly.
-        let onWheel = false;
-        for (const wx of g.wheelXs) {
-          const d = Math.hypot(px - wx, py - g.wheelY);
-          if (d <= g.wheelR) {
-            sample = d <= g.wheelR * 0.42 ? [150, 156, 165] : [32, 36, 44];
-            if (d > g.wheelR * 0.42 && d < g.wheelR * 0.52) sample = [92, 98, 108];
-            onWheel = true;
-            break;
-          }
+        // Wheels first, so the arches read as cut into the body.
+        let drawn = false;
+        for (const wheel of shape.wheels) {
+          const d = Math.hypot(px - wheel.x, py - wheel.y);
+          if (d > wheel.r) continue;
+
+          if (d < wheel.r * 0.30) sample = [128, 134, 143];
+          else if (d < wheel.r * 0.36) sample = [78, 84, 93];
+          else if (d < wheel.r * 0.52) {
+            // Spokes: five, so the wheel does not read as a flat disc.
+            const angle = Math.atan2(py - wheel.y, px - wheel.x);
+            const spoke = Math.cos(angle * 5);
+            sample = spoke > 0.55 ? [116, 122, 131] : [58, 63, 71];
+          } else if (d < wheel.r * 0.60) sample = [96, 102, 111];
+          else sample = [26, 29, 35];
+
+          drawn = true;
+          break;
         }
 
-        if (!onWheel) {
-          if (insideWindow(px, py, g)) {
-            // Glass: darker at the top, catching light lower down.
-            const t = (py - g.roofTop) / (g.bodyTop - g.roofTop);
-            sample = mix([58, 72, 92], [130, 152, 176], t);
-          } else if (insideCabin(px, py, g)) {
-            sample = shade(paint, -0.12);
-          } else if (insideBody(px, py, g)) {
-            // Vertical gradient on the paint, plus a bright shoulder line -
-            // that highlight is most of what makes it read as metal.
-            const t = (py - g.bodyTop) / (g.bodyBottom - g.bodyTop);
-            sample = mix(shade(paint, 0.18), shade(paint, -0.28), t);
-            if (py > g.bodyTop + 34 && py < g.bodyTop + 44) sample = shade(sample, 0.22);
+        if (!drawn) {
+          let onWindow = false;
+          for (let i = 0; i < shape.windows.length; i += 1) {
+            const [wx0, wy0, wx1, wy1] = windowBounds[i]!;
+            if (px < wx0 || px > wx1 || py < wy0 || py > wy1) continue;
+            if (!inPolygon(px, py, shape.windows[i]!)) continue;
+
+            // Glass darkens towards the roof and catches light lower down.
+            const t = (py - wy0) / Math.max(1, wy1 - wy0);
+            sample = mix([48, 62, 82], [138, 160, 184], t);
+            onWindow = true;
+            break;
+          }
+
+          if (
+            !onWindow &&
+            px >= bodyBounds[0] &&
+            px <= bodyBounds[2] &&
+            py >= bodyTop &&
+            py <= bodyBottom &&
+            inPolygon(px, py, shape.body)
+          ) {
+            const t = (py - bodyTop) / (bodyBottom - bodyTop);
+            sample = mix(shade(paint, 0.22), shade(paint, -0.34), t);
+
+            // The shoulder crease - most of what makes flat colour read as
+            // a metal panel catching light.
+            const crease = Math.abs(py - shape.shoulderY);
+            if (crease < 5) sample = shade(sample, 0.20 * (1 - crease / 5));
+            else if (crease < 12 && py > shape.shoulderY) sample = shade(sample, -0.10);
+
+            // Door shut lines.
+            for (const doorX of shape.doorLines) {
+              if (Math.abs(px - doorX) < 1.6 && py > shape.shoulderY - 30) {
+                sample = shade(sample, -0.30);
+              }
+            }
+
+            // Lamps, drawn last so they sit on the paint.
+            if (inPolygon(px, py, shape.headlight)) sample = [246, 242, 220];
+            else if (inPolygon(px, py, shape.taillight)) sample = [198, 52, 48];
           }
         }
 
         r += sample[0];
-        gg += sample[1];
+        g += sample[1];
         b += sample[2];
       }
 
       const index = (y * WIDTH + x) * 3;
       pixels[index] = Math.round(r / SAMPLES.length);
-      pixels[index + 1] = Math.round(gg / SAMPLES.length);
+      pixels[index + 1] = Math.round(g / SAMPLES.length);
       pixels[index + 2] = Math.round(b / SAMPLES.length);
     }
   }
@@ -350,8 +439,8 @@ async function main(): Promise<void> {
 
   console.log('\n  ---------------------------------------------------------------');
   console.log('   VEHICLE IMAGES');
-  console.log('   Drawn per vehicle, in its own colour. Not photographs -');
-  console.log('   real photos replace these as soon as staff upload any.');
+  console.log('   Drawn per vehicle, in its own colour and body style.');
+  console.log('   Not photographs - real uploads replace them.');
   console.log('  ---------------------------------------------------------------\n');
 
   let created = 0;
@@ -363,12 +452,13 @@ async function main(): Promise<void> {
       continue;
     }
 
-    if (force && vehicle.images.length > 0) {
-      // Remove the rows first; the files themselves are swept by
+    if (vehicle.images.length > 0) {
+      // The rows go now; the orphaned files are reclaimed by
       // `npm run storage:sweep` once nothing references them.
       await prisma.vehicleImage.deleteMany({ where: { vehicleId: vehicle.id } });
     }
 
+    const style = bodyStyleFor(vehicle.category.slug, vehicle.doors, vehicle.seats);
     const png = renderVehicle({
       categorySlug: vehicle.category.slug,
       doors: vehicle.doors,
@@ -381,7 +471,6 @@ async function main(): Promise<void> {
       originalName: `${vehicle.brand}-${vehicle.model}.png`.toLowerCase().replace(/\s+/g, '-'),
       mimeType: 'image/png',
       folder: `vehicles/${vehicle.id}`,
-      // Marketing imagery, cacheable by anyone. Not customer documents.
       visibility: 'public',
     });
 
@@ -389,7 +478,7 @@ async function main(): Promise<void> {
       data: {
         vehicleId: vehicle.id,
         storageKey: stored.key,
-        // A side profile - which is exactly what the drawing is.
+        // A side profile, which is exactly what the drawing is.
         type: 'EXTERIOR_LEFT',
         altText: `${vehicle.brand} ${vehicle.model} ${vehicle.year}${vehicle.color ? `, ${vehicle.color}` : ''}`,
         isPrimary: true,
@@ -402,14 +491,14 @@ async function main(): Promise<void> {
     created += 1;
     console.log(
       `    ${vehicle.brand} ${vehicle.model}`.padEnd(38) +
-        `${vehicle.color ?? 'no colour'}`.padEnd(18) +
+        `${style}`.padEnd(9) +
+        `${vehicle.color ?? '-'}`.padEnd(18) +
         `${(png.length / 1024).toFixed(0)} KB`,
     );
   }
 
-  console.log(`\n  ${created} images created, ${skipped} vehicles already had one.`);
-  if (skipped > 0 && !force) console.log('  Use --force to redraw those too.\n');
-  else console.log('');
+  console.log(`\n  ${created} images created, ${skipped} skipped.`);
+  console.log(skipped > 0 && !force ? '  Use --force to redraw those too.\n' : '');
 }
 
 main()

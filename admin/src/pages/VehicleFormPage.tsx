@@ -54,7 +54,20 @@ const DEFAULTS: VehicleFormValues = {
 
 export default function VehicleFormPage() {
   const { id } = useParams<{ id: string }>();
-  const isNew = id === 'new';
+  /*
+   * `!id` matters as much as the 'new' comparison.
+   *
+   * The router declares BOTH `/vehicles/new` and `/vehicles/:id`, and React
+   * Router ranks a static segment above a dynamic one - so `/vehicles/new`
+   * matches the static route, which declares no params, and `useParams()`
+   * returns `{}`. `id` is undefined, never the string 'new'.
+   *
+   * With only the string check, clicking "Add vehicle" opened what the page
+   * believed was an EDIT form for a vehicle that does not exist: no title, and
+   * submitting fired PATCH /vehicles/undefined, which failed. The button
+   * simply appeared not to work.
+   */
+  const isNew = !id || id === 'new';
   const navigate = useNavigate();
 
   const { data: categoryData } = useAdminCategories();

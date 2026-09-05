@@ -161,5 +161,16 @@ describe('POST /auth/login', () => {
 
     expect(res.status).toBe(423);
     expect(res.body.message).toContain('locked');
-  });
+    /*
+     * 20s, not the 5s default. This test performs SEVEN bcrypt operations at
+     * cost 12 - one to create the user, then one dummy compare per failed
+     * attempt, which the login path runs deliberately so an unknown email
+     * takes as long as a wrong password.
+     *
+     * That slowness is the security property, so the budget has to match the
+     * work rather than the hashing being weakened to fit. At 5s it passed on
+     * an idle machine and failed whenever anything else was running, which is
+     * the definition of a flaky test.
+     */
+  }, 20_000);
 });
