@@ -19,6 +19,7 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "seed:demo": "tsx prisma/seedDemo.ts",
     "seed:demo:clear": "tsx prisma/seedDemo.ts --clear",
+    "images:generate": "tsx scripts/generateVehicleImages.ts",
     "storage:sweep": "tsx scripts/storageSweep.ts",
     "repair:filenames": "tsx scripts/repairFilenames.ts",
     "openapi:generate": "tsx scripts/generateOpenApi.ts",

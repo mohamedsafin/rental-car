@@ -127,6 +127,7 @@ npm run test:watch --workspace backend    # watch mode
 | `npm run prisma:seed --workspace backend` | Create/reset the first admin account |
 | `npm run seed:demo --workspace backend` | Load the demonstration fleet (placeholder rates) |
 | `npm run seed:demo:clear --workspace backend` | Remove the demonstration fleet again |
+| `npm run images:generate --workspace backend` | Draw an image for every vehicle that has none (`-- --force` redraws all) |
 | `npm run prisma:migrate --workspace backend` | Create and apply a migration after editing the schema |
 | `npm run prisma:generate --workspace backend` | Regenerate the typed Prisma client |
 | `npm run typecheck --workspace backend` | Type-check without emitting |
