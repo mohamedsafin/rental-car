@@ -7,14 +7,33 @@
  * the work queue BRD 13 describes, and the admin dashboard's "Pending Document
  * Verification" tile will link straight here.
  */
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useCustomers } from '../features/customer/useCustomerAdmin';
 
 export default function CustomersPage() {
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [pendingOnly, setPendingOnly] = useState(false);
+  /*
+   * Filter state lives in the URL, like every other list in this app. It was
+   * useState, which meant the dashboard's "Documents awaiting review" tile
+   * could not link here with the filter already applied - the page would open
+   * showing every customer, and whoever followed the link would have to find
+   * and tick the box themselves.
+   */
+  const [params, setParams] = useSearchParams();
+  const page = Number(params.get('page') ?? '1');
+  const search = params.get('search') ?? '';
+  const pendingOnly = params.get('pending') === 'true';
+
+  function setParam(key: string, value: string) {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    // Any filter change invalidates the current page number.
+    if (key !== 'page') next.delete('page');
+    setParams(next);
+  }
+
+  const setPage = (value: number) => setParam('page', String(value));
 
   const { data, isPending, isError, error } = useCustomers({
     page,
@@ -38,21 +57,15 @@ export default function CustomersPage() {
             <input
               type="checkbox"
               checked={pendingOnly}
-              onChange={(e) => {
-                setPendingOnly(e.target.checked);
-                setPage(1);
-              }}
+              onChange={(event) => setParam('pending', event.target.checked ? 'true' : '')}
               className="rounded border-slate-300"
             />
             Awaiting document review
           </label>
           <input
             type="search"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            defaultValue={search}
+            onChange={(event) => setParam('search', event.target.value)}
             placeholder="Name, email or phone"
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
           />
@@ -145,7 +158,7 @@ export default function CustomersPage() {
           <button
             type="button"
             disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
+            onClick={() => setPage(page - 1)}
             className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-40"
           >
             Previous
@@ -156,7 +169,7 @@ export default function CustomersPage() {
           <button
             type="button"
             disabled={page >= data.pagination.totalPages}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => setPage(page + 1)}
             className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:opacity-40"
           >
             Next
