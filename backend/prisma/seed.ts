@@ -38,9 +38,22 @@ async function main(): Promise<void> {
 
   if (password.length < 12) {
     // The admin account can manage the whole fleet, every customer record and
-    // every payment. Twelve characters is the floor, not a suggestion.
-    console.error('\nSEED_ADMIN_PASSWORD must be at least 12 characters.\n');
-    process.exit(1);
+    // every payment, so twelve characters is the floor WHERE IT MATTERS.
+    //
+    // Refusing outright on a developer's laptop was over-strict: it blocked
+    // convenient local credentials while protecting nothing, since the whole
+    // database is throwaway and rebuilt on demand. In production that same
+    // weak password guards real customers' identity documents and real money,
+    // so there it still stops the seed dead.
+    if (process.env.NODE_ENV === 'production') {
+      console.error('\nSEED_ADMIN_PASSWORD must be at least 12 characters in production.\n');
+      process.exit(1);
+    }
+
+    console.warn(
+      `\n  WARNING: SEED_ADMIN_PASSWORD is only ${password.length} characters.` +
+        '\n  Fine for local development. This account must NOT reach production with it.\n',
+    );
   }
 
   const passwordHash = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT_ROUNDS ?? 12));
