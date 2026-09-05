@@ -127,6 +127,8 @@ extension from your booking page: {{bookingUrl}}`,
 
 {{reason}}
 
+{{nextStep}}
+
 You can review your documents here: {{documentsUrl}}`,
   },
   {

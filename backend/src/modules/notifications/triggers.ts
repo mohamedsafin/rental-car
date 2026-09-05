@@ -128,18 +128,38 @@ export const notify = {
     });
   },
 
-  /** A staff decision on an identity document (BRD 13). */
-  async documentReviewed(customerUserId: string, documentType: string, approved: boolean, reason?: string) {
+  /**
+   * A staff decision on an identity document (BRD 13).
+   *
+   * `nextStep` matters more than the verdict. "Your passport was approved" is
+   * not actionable on its own - the customer wants to know whether they can
+   * now book, or whether something else is still outstanding.
+   */
+  async documentReviewed(
+    customerUserId: string,
+    documentType: string,
+    approved: boolean,
+    options: { reason?: string; nowVerified?: boolean; documentId?: string } = {},
+  ) {
+    const nextStep = approved
+      ? options.nowVerified
+        ? 'Your account is fully verified - you can book and pay straight away.'
+        : 'One or more documents are still outstanding, so we cannot confirm a booking yet.'
+      : 'Please upload a corrected copy so we can check it again.';
+
     await notificationsService.send({
       templateKey: TemplateKey.DOCUMENT_REVIEWED,
       recipientId: customerUserId,
       data: {
         documentType: documentType.replace(/_/g, ' ').toLowerCase(),
         outcome: approved ? 'approved' : 'not accepted',
-        reason: reason ?? '',
+        reason: options.reason ?? '',
+        nextStep,
         documentsUrl: `${env.PUBLIC_SITE_URL}/account/documents`,
       },
-      related: { type: 'CustomerDocument', id: customerUserId },
+      // Keyed to the DOCUMENT, so the log can be filtered by the thing that
+      // was actually reviewed rather than by the person.
+      related: { type: 'CustomerDocument', id: options.documentId ?? customerUserId },
     });
   },
 

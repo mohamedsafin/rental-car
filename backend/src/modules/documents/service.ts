@@ -28,6 +28,7 @@ import { ApiError } from '../../utils/ApiError';
 import { assertRealDocument } from '../../middleware/upload';
 import { storage } from '../../services/storage';
 import { auditService } from '../audit/service';
+import { fireAndForget, notify } from '../notifications/triggers';
 import { evaluateRequirements } from '../customers/requirements';
 import { toPublicDocument, type PublicDocument } from '../customers/types';
 
@@ -276,8 +277,30 @@ export const documentService = {
       userAgent: actor.userAgent,
     });
 
-    // Phase 10 sends the customer an email/SMS here. The notification service
-    // does not exist yet, so this is a deliberate gap, not an oversight.
+    /*
+     * Tell the customer. Until now this was a TODO left over from Phase 5 -
+     * the template and the trigger both existed by Phase 10, but nothing
+     * called them, so a document could be approved and the customer would
+     * never be told. The only way to find out was to go and look.
+     *
+     * Detached: the decision is already recorded and must not be rolled back
+     * by a mail failure.
+     */
+    const customer = await prisma.customer.findUnique({
+      where: { id: existing.customerId },
+      select: { userId: true },
+    });
+
+    if (customer) {
+      fireAndForget(
+        notify.documentReviewed(customer.userId, document.type, decision.status === 'APPROVED', {
+          reason: decision.rejectionReason?.trim(),
+          nowVerified: isVerified,
+          documentId: documentId,
+        }),
+      );
+    }
+
     return toPublicDocument(document);
   },
 
