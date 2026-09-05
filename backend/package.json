@@ -11,13 +11,18 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
     "seed:demo": "tsx prisma/seedDemo.ts",
-    "seed:demo:clear": "tsx prisma/seedDemo.ts --clear"
+    "seed:demo:clear": "tsx prisma/seedDemo.ts --clear",
+    "storage:sweep": "tsx scripts/storageSweep.ts",
+    "openapi:generate": "tsx scripts/generateOpenApi.ts",
+    "openapi:check": "tsx scripts/generateOpenApi.ts --check",
+    "audit:prod": "npm audit --omit=dev"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",
@@ -47,6 +52,7 @@
     "@types/node": "^24.5.2",
     "@types/pdfkit": "^0.17.6",
     "@types/supertest": "^6.0.3",
+    "@vitest/coverage-v8": "^3.2.7",
     "prisma": "^6.16.2",
     "supertest": "^7.1.4",
     "tsx": "^4.20.6",

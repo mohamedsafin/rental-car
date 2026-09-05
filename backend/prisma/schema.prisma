@@ -619,6 +619,10 @@ model Booking {
   @@index([customerId])
   @@index([status])
   @@index([pickupAt])
+  /// The bookings report asks "how much did we sell in March", which is a
+  /// createdAt range - a different question from pickupAt, and one the
+  /// pickupAt index cannot answer.
+  @@index([createdAt])
   @@map("bookings")
 }
 
@@ -981,6 +985,10 @@ model Payment {
 
   @@index([bookingId])
   @@index([status])
+  /// The revenue report's exact predicate: COMPLETED payments in a date
+  /// window. `status` alone is barely selective once most payments have
+  /// succeeded, so the date has to be in the index with it.
+  @@index([status, paidAt])
   @@map("payments")
 }
 
@@ -1007,6 +1015,9 @@ model Refund {
 
   @@index([paymentId])
   @@index([status])
+  /// Paired with the payments index: the revenue report subtracts refunds
+  /// over the same window.
+  @@index([status, completedAt])
   @@map("refunds")
 }
 

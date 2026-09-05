@@ -96,6 +96,11 @@ const envSchema = z.object({
   // Links in outbound messages point back at the customer site, not the API.
   PUBLIC_SITE_URL: z.string().url().default('http://localhost:5173'),
 
+  // How many reverse proxies sit in front of us. 0 = none, so X-Forwarded-For
+  // is ignored and req.ip is the real socket address. Set it to the actual hop
+  // count in production; a wrong value here silently breaks rate limiting.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
+
   // File storage
   STORAGE_DRIVER: z.enum(['local', 's3', 'cloudinary']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./uploads'),

@@ -19,6 +19,7 @@ import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { env, isProduction, isTest } from './config/env';
+import { rateLimitingEnabled } from './config/rateLimiting';
 import { logger } from './config/logger';
 import { requestId } from './middleware/requestId';
 import { notFound } from './middleware/notFound';
@@ -32,7 +33,15 @@ export function createApp(): Application {
 
   // Behind a reverse proxy (nginx, Render, Railway) this makes req.ip and the
   // rate limiter see the real client IP instead of the proxy's.
-  app.set('trust proxy', 1);
+  //
+  // Configured, NOT hardcoded, and off by default. With it on and no proxy in
+  // front, anyone can send `X-Forwarded-For: <random>` on every request and
+  // walk straight through the rate limiter - each spoofed address gets its own
+  // fresh quota. Trusting that header is only safe when something we control
+  // is guaranteed to be setting it.
+  if (env.TRUST_PROXY_HOPS > 0) {
+    app.set('trust proxy', env.TRUST_PROXY_HOPS);
+  }
   app.disable('x-powered-by');
 
   // 1. Request id — first, so every later log line can reference it.
@@ -106,8 +115,10 @@ export function createApp(): Application {
       max: env.RATE_LIMIT_MAX,
       standardHeaders: 'draft-7',
       legacyHeaders: false,
-      // Health checks never count; the whole limiter is off in tests.
-      skip: (req) => isTest || req.path.startsWith('/health'),
+      // Health checks never count - an uptime monitor polling every 30s must
+      // not consume a customer's quota. The limiter itself is off during the
+      // main test suite and switched back on by tests/security.test.
+      skip: (req) => !rateLimitingEnabled() || req.path.startsWith('/health'),
       handler: (_req, _res, next) => {
         next(new ApiError(429, 'Too many requests, please try again later', ErrorCode.RATE_LIMITED));
       },
@@ -122,10 +133,21 @@ export function createApp(): Application {
   if (storage instanceof LocalStorageProvider) {
     app.use(
       '/uploads',
+      // Helmet sets Cross-Origin-Resource-Policy: same-origin globally, which
+      // is right for the API and WRONG here: the customer site runs on a
+      // different origin, so the browser would refuse to render every vehicle
+      // photo it serves. Relaxed for this mount only, and only because these
+      // files are public marketing images by definition - private documents
+      // are never served from this directory, they go through an authorised
+      // streaming route.
+      helmet.crossOriginResourcePolicy({ policy: 'cross-origin' }),
       express.static(storage.publicDirectory(), {
         maxAge: isProduction ? '7d' : 0,
         index: false,
         dotfiles: 'deny',
+        // Do not fall through to the API router on a miss: a request for a
+        // file that does not exist should 404 here, not be re-matched.
+        fallthrough: true,
       }),
     );
   }

@@ -18,7 +18,7 @@ import { ApiError } from '../utils/ApiError';
 
 /** Allow only the listed roles. Must run after `authenticate`. */
 export function authorize(...allowedRoles: Role[]) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  const guard = (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.user) {
       // A programming error: authorize was mounted without authenticate.
       next(ApiError.unauthorized('Authentication required'));
@@ -34,6 +34,13 @@ export function authorize(...allowedRoles: Role[]) {
 
     next();
   };
+
+  // Tagged so `routeInventory` can see which roles a route demands, and the
+  // security test can assert it rather than trusting a code review.
+  Object.defineProperty(guard, 'guardKind', { value: 'authorize' });
+  Object.defineProperty(guard, 'allowedRoles', { value: allowedRoles });
+
+  return guard;
 }
 
 /**

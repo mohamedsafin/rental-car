@@ -32,43 +32,59 @@ import { invoiceRoutes } from '../modules/invoices/routes';
 import { notificationRoutes } from '../modules/notifications/routes';
 import { reportRoutes } from '../modules/reports/routes';
 import { legalRoutes } from '../modules/legal/routes';
+import { docsRoutes } from '../modules/docs/routes';
+
+/**
+ * The mount table.
+ *
+ * Declared as data rather than as a sequence of `router.use` calls, because
+ * `utils/routeInventory` needs the prefixes to report full paths - and Express
+ * 5 compiles a mounted router's path into a closure that cannot be read back.
+ * Driving the mounting FROM this table means the two can never disagree.
+ */
+export const API_MOUNTS = {
+  '/health': healthRoutes,
+  // The OpenAPI document, built from this very table. Public: an API
+  // description is not a secret, and every path in it is already enforced by
+  // the guards it documents.
+  '/docs': docsRoutes,
+  '/auth': authRoutes,
+  '/users': userRoutes,
+  '/categories': categoryRoutes,
+  '/features': featureRoutes,
+  '/vehicles': vehicleRoutes,
+  '/locations': locationRoutes,
+  '/availability': availabilityRoutes,
+  '/customers': customerRoutes,
+  '/documents': documentRoutes,
+  '/bookings': bookingRoutes,
+  '/payments': paymentRoutes,
+  '/deposits': depositRoutes,
+  '/rentals': rentalRoutes,
+  '/pricing': pricingRoutes,
+  // Admin-only pricing management, under its own prefix so the public
+  // /pricing routes stay unambiguously public.
+  '/admin/pricing': pricingAdminRoutes,
+  '/damages': damageRoutes,
+  '/fleet': fleetRoutes,
+  '/coupons': couponRoutes,
+  '/invoices': invoiceRoutes,
+  '/notifications': notificationRoutes,
+  '/reports': reportRoutes,
+  // Partly public: terms a customer must sign in to read are terms they
+  // cannot read before deciding whether to sign up.
+  '/legal': legalRoutes,
+} as const;
 
 const router = Router();
 
-router.use('/health', healthRoutes);
-router.use('/auth', authRoutes);
-router.use('/users', userRoutes);
-router.use('/categories', categoryRoutes);
-router.use('/features', featureRoutes);
-router.use('/vehicles', vehicleRoutes);
-router.use('/locations', locationRoutes);
-router.use('/availability', availabilityRoutes);
-router.use('/customers', customerRoutes);
-router.use('/documents', documentRoutes);
-router.use('/bookings', bookingRoutes);
-router.use('/payments', paymentRoutes);
-router.use('/deposits', depositRoutes);
-router.use('/rentals', rentalRoutes);
+for (const [prefix, moduleRouter] of Object.entries(API_MOUNTS)) {
+  router.use(prefix, moduleRouter);
+}
 
 // Development-only checkout simulator. No-op unless PAYMENT_PROVIDER=mock.
+// Deliberately outside the table: it is not part of the API surface and must
+// not appear in the OpenAPI spec.
 mountMockCheckout(router);
-router.use('/pricing', pricingRoutes);
-// Admin-only pricing management. Mounted under its own prefix so the public
-// /pricing routes stay unambiguously public.
-router.use('/admin/pricing', pricingAdminRoutes);
-
-// Damage assessment, and fleet operations - fines, tolls, maintenance,
-// insurance, vehicle documents and expiry tracking. Both are back-office
-// only; the customer sees the results through their booking and deposit.
-router.use('/damages', damageRoutes);
-router.use('/fleet', fleetRoutes);
-
-// Phase 10 - the outputs. /legal is partly public: terms a customer must sign
-// in to read are terms they cannot read before deciding to sign up.
-router.use('/coupons', couponRoutes);
-router.use('/invoices', invoiceRoutes);
-router.use('/notifications', notificationRoutes);
-router.use('/reports', reportRoutes);
-router.use('/legal', legalRoutes);
 
 export const apiV1Router = router;

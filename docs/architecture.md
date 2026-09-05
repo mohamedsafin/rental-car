@@ -126,6 +126,21 @@ None of these are hardcoded. They live in the `system_settings` table and are
 edited from the Admin Dashboard. This is why `SystemSetting` is the very first
 model in the schema.
 
+### Guarantees enforced by tests, not by review
+
+`utils/routeInventory.ts` walks the routers and reports every endpoint with the
+guards protecting it. `tests/security.test.ts` asserts against that: every
+mutating endpoint requires authentication, every back-office prefix demands a
+role, and no `authorize()` ever admits a CUSTOMER.
+
+The same inventory generates the OpenAPI paths, so the spec, the security tests
+and the server all read from one source. `npm run openapi:check` fails if the
+committed spec has drifted from the code — a committed spec nobody regenerates
+is worse than none, because it looks authoritative while describing an API that
+no longer exists.
+
+The full review is in [security.md](security.md).
+
 ### Abstractions chosen by the client
 
 | Concern | Interface | Development driver | Refuses in production |

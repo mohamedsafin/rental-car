@@ -21,7 +21,7 @@ import fs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { env } from '../../config/env';
 import { ApiError, ErrorCode } from '../../utils/ApiError';
-import type { StorageProvider, StoredFile, UploadInput } from './types';
+import type { StorageProvider, StoredFile, StoredObject, UploadInput } from './types';
 
 /** Extension is derived from the VERIFIED mime type, never from the filename. */
 const EXTENSION_BY_MIME: Record<string, string> = {
@@ -43,6 +43,50 @@ export class LocalStorageProvider implements StorageProvider {
   constructor() {
     this.root = path.resolve(process.cwd(), env.STORAGE_LOCAL_PATH);
     this.publicBaseUrl = `${env.PUBLIC_API_URL}/uploads`;
+  }
+
+  /**
+   * Every file under the storage root, as provider keys.
+   *
+   * Used by the orphaned-file sweep. Walks both `public/` and `private/`,
+   * because an identity document left behind after its row is gone is exactly
+   * the case worth finding.
+   */
+  async list(): Promise<StoredObject[]> {
+    const found: StoredObject[] = [];
+
+    const walk = async (directory: string): Promise<void> => {
+      let entries;
+      try {
+        entries = await fs.readdir(directory, { withFileTypes: true });
+      } catch {
+        // The root may not exist yet on a fresh install. Nothing stored is
+        // not an error.
+        return;
+      }
+
+      for (const entry of entries) {
+        const absolute = path.join(directory, entry.name);
+
+        if (entry.isDirectory()) {
+          await walk(absolute);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+
+        const stats = await fs.stat(absolute);
+        found.push({
+          // Keys are POSIX-style everywhere else in the system, so normalise
+          // Windows separators rather than leaking them into comparisons.
+          key: path.relative(this.root, absolute).split(path.sep).join('/'),
+          sizeBytes: stats.size,
+          modifiedAt: stats.mtime,
+        });
+      }
+    };
+
+    await walk(this.root);
+    return found;
   }
 
   /** Resolve a key to an absolute path, refusing anything outside the root. */

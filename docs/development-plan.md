@@ -15,7 +15,7 @@ it work in the browser. We do not start the next phase before then.
 | **8. Rental lifecycle** | Pickup, inspections, extension, return, additional charges | Full pickup-to-return cycle for one booking |
 | **9. Charges & fleet admin** ✅ | Damages, fines, tolls, fuel, maintenance, insurance, expiry reminders | A damage charge reaches the deposit settlement correctly; a maintenance window blocks those dates **only** |
 | **10. Output** ✅ | Invoices (PDF), notifications, coupons, reports, legal documents | Downloadable invoice; revenue report matches payments (not bookings) |
-| **11. Hardening** | Security pass, test coverage, performance, OpenAPI, Docker, deployment | Security review clean; deployed to staging |
+| **11. Hardening** | Security pass, test coverage, performance, OpenAPI, Docker | Security review recorded in [security.md](security.md); guarantees enforced by tests. **Deployment deferred** at the client's request. |
 
 ## Order rationale
 

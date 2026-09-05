@@ -80,3 +80,15 @@ export function optionalAuthenticate(req: Request, _res: Response, next: NextFun
   }
   next();
 }
+
+
+/**
+ * Marks these as security guards so `routeInventory` can recognise them by
+ * property rather than by function name.
+ *
+ * Names are unreliable here: middleware gets wrapped, bound and minified, and
+ * a guarantee that depends on a function still being called "authenticate" is
+ * a guarantee that breaks quietly. A property survives all of that.
+ */
+Object.defineProperty(authenticate, 'guardKind', { value: 'authenticate' });
+Object.defineProperty(optionalAuthenticate, 'guardKind', { value: 'optional' });

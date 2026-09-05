@@ -9,7 +9,7 @@ document requirements — are **configurable settings, not hardcoded numbers**.
 
 ## Status
 
-**Phase 10 complete — Invoices, notifications, coupons and reports.** See
+**Phase 11 complete — Hardening.** All eleven phases built; deployment deferred. See
 [docs/development-plan.md](docs/development-plan.md) for the roadmap.
 
 Done so far: monorepo foundation and health checks; JWT auth with
@@ -34,7 +34,14 @@ dashboard; and the outputs — immutable PDF tax invoices corrected only by
 credit notes, promo codes priced entirely server-side, an outbound message log
 written before anything is sent, versioned legal documents pinned to each
 booking, and management reports where revenue means what was **paid**, not what
-was booked.
+was booked; and a hardening pass — a route inventory that fails the build if a
+mutating endpoint ever loses its guard, rate limiters that are now actually
+tested, a generated OpenAPI spec that cannot drift from the router, an
+orphaned-file sweep for stranded identity documents, and Docker images for all
+three apps.
+
+The security review, including what was deliberately accepted and why, is in
+[docs/security.md](docs/security.md).
 
 ## Stack
 
@@ -124,6 +131,26 @@ npm run test:watch --workspace backend    # watch mode
 | `npm run prisma:generate --workspace backend` | Regenerate the typed Prisma client |
 | `npm run typecheck --workspace backend` | Type-check without emitting |
 | `npm run build` | Production build of all three apps |
+| `npm run test:coverage --workspace backend` | Tests with coverage; thresholds fail the build |
+| `npm run audit:prod` | Audit the production dependency tree only |
+| `npm run storage:sweep --workspace backend` | Report files no database row points at (add `-- --delete` to remove) |
+| `npm run openapi:generate --workspace backend` | Regenerate `openapi.json` from the live router |
+| `npm run openapi:check --workspace backend` | Fail if the committed spec has drifted |
+
+## Running in Docker
+
+Local stack only — not a deployment. TLS, migrations-on-release and shared
+object storage are noted in `docker-compose.yml` rather than guessed at.
+
+```bash
+cp .env.example .env      # set POSTGRES_PASSWORD, JWT_SECRET, JWT_REFRESH_SECRET
+docker compose up --build
+docker compose run --rm api npm run prisma:deploy --workspace backend
+```
+
+The API image runs as a non-root user, contains no TypeScript or tests, and
+health-checks against the **liveness** probe — a liveness check that fails on a
+database blip gets the container restarted, which fixes nothing.
 
 ## Layout
 

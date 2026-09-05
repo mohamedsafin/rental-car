@@ -52,4 +52,20 @@ export interface StorageProvider {
 
   /** Read a private file back, for streaming it through an authorised route. */
   getStream?(key: string): Promise<NodeJS.ReadableStream>;
+
+  /**
+   * Every key the provider currently holds, with its age.
+   *
+   * Optional, because a provider is not required to support enumeration -
+   * some object stores make it expensive. Used only by the orphaned-file
+   * sweep, which skips providers that cannot list.
+   */
+  list?(): Promise<StoredObject[]>;
+}
+
+export interface StoredObject {
+  key: string;
+  sizeBytes: number;
+  /** When the file was written, so a sweep can leave recent uploads alone. */
+  modifiedAt: Date;
 }

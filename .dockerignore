@@ -1,0 +1,17 @@
+# Everything the image does not need. Keeping the build context small is not
+# only about speed: a context that includes .env would bake secrets into a
+# layer, where they survive even if a later layer deletes the file.
+node_modules
+**/node_modules
+**/dist
+**/coverage
+.git
+.gitignore
+**/.env
+**/.env.*
+!**/.env.example
+**/uploads
+*.log
+.vscode
+.idea
+**/*.test.ts

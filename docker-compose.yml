@@ -1,42 +1,122 @@
-# ---------------------------------------------------------------------------
 # docker-compose.yml
 # ---------------------------------------------------------------------------
-# Optional. Docker is NOT required for local development on this machine -
-# PostgreSQL 18 is installed natively and that is what Phase 1 uses.
+# Brings up PostgreSQL, the API and both frontends.
 #
-# This file exists so that:
-#   - a new developer can get an identical database with one command
-#   - CI can spin up a throwaway database for tests
-#   - deployment has a known-good container definition to start from
+# This is a RUNNABLE LOCAL STACK, not a production deployment. Real deployment
+# needs decisions nobody has made yet - where it is hosted, how TLS terminates,
+# where uploads live once there is more than one API instance. Those are noted
+# at the bottom rather than guessed at here.
 #
-# Usage:  docker compose up -d db
-# ---------------------------------------------------------------------------
+#   docker compose up --build
+#   docker compose run --rm api npm run prisma:deploy --workspace backend
+#
+# Secrets come from a .env file beside this one; nothing sensitive is written
+# in this file, and there are no defaults that would work in production.
+
 services:
   db:
     image: postgres:18-alpine
-    container_name: car-rental-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-car_rental_dev}
-    ports:
-      # Host 5433 -> container 5432, so this never clashes with a natively
-      # installed PostgreSQL already listening on 5432.
-      - '5433:5432'
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-car_rental}
     volumes:
-      - car-rental-db-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Exposed for local inspection with psql or Prisma Studio. Remove this
+      # line for anything reachable from a network you do not control.
+      - '5432:5432'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-car_rental_dev}']
-      interval: 10s
+      # The API waits for this. Without it the API starts first, fails to
+      # connect, and restarts in a loop until Postgres happens to be ready.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-car_rental}']
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  # Enable from Phase 11 (rate limiting, sessions, job queue).
-  # cache:
-  #   image: redis:7-alpine
-  #   ports:
-  #     - '6379:6379'
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-car_rental}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:5174}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-http://localhost:5173}
+      # One proxy hop: nginx or the load balancer in front of this service.
+      # Wrong here and rate limiting silently stops working.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      # Both refuse to boot with NODE_ENV=production, on purpose. Production
+      # must supply the real provider the client chose.
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:?the client's gateway, see BRD 19}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?required to verify webhooks}
+      NOTIFICATION_DRIVER: ${NOTIFICATION_DRIVER:?the client's provider, see BRD 51}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+    volumes:
+      # The local storage driver writes here. A named volume keeps uploads
+      # across restarts - but see the note about multiple instances below.
+      - api-uploads:/app/uploads
+    ports:
+      - '4000:4000'
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Baked in at BUILD time - Vite inlines it. Changing it means
+        # rebuilding the image, not restarting the container.
+        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}/api/v1
+        VITE_APP_NAME: ${APP_NAME:-UAE Car Rental}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '5173:80'
+
+  admin:
+    build:
+      context: .
+      dockerfile: admin/Dockerfile
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}/api/v1
+        VITE_APP_NAME: ${APP_NAME:-UAE Car Rental} Admin
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '5174:80'
 
 volumes:
-  car-rental-db-data:
+  postgres-data:
+  api-uploads:
+
+# ---------------------------------------------------------------------------
+# NOT DONE HERE, and deliberately so:
+#
+#  - TLS. Terminated by whatever sits in front (a load balancer, Caddy,
+#    Cloudflare). Putting a self-signed certificate in this file would only
+#    teach everyone to click through the warning.
+#
+#  - Migrations on startup. `prisma migrate deploy` is a release step that runs
+#    ONCE. Three replicas booting together would race through the same
+#    migration; run it from a job, or by hand, before the new version serves
+#    traffic.
+#
+#  - Shared uploads. STORAGE_DRIVER=local writes to a volume attached to ONE
+#    container. Scale the API past a single instance and half the images will
+#    404 depending on which one answers. That is what the storage abstraction
+#    is for: switch to S3 before scaling out, not after.
+#
+#  - Backups. A named volume is not a backup. Nothing here protects the
+#    database from `docker compose down -v`.
+# ---------------------------------------------------------------------------

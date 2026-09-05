@@ -11,7 +11,7 @@
  */
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { isTest } from '../../config/env';
+import { rateLimitingEnabled } from '../../config/rateLimiting';
 import { authenticate } from '../../middleware/authenticate';
 import { validate } from '../../middleware/validate';
 import { ApiError, ErrorCode } from '../../utils/ApiError';
@@ -32,10 +32,10 @@ const loginLimiter = rateLimit({
   // A successful login should not consume the budget - otherwise a busy office
   // behind one NAT IP locks itself out.
   skipSuccessfulRequests: true,
-  // Off during tests: the suite makes dozens of deliberate login attempts from
-  // one address and would otherwise rate-limit itself. The limiter's real
-  // behaviour is exercised by the manual smoke tests and again in Phase 11.
-  skip: () => isTest,
+  // Off during the main suite, which makes dozens of deliberate login attempts
+  // from one address and would otherwise lock itself out. tests/security.test
+  // switches it back on and proves this limiter actually fires.
+  skip: () => !rateLimitingEnabled(),
   handler: (_req, _res, next) => {
     next(new ApiError(429, 'Too many login attempts. Please try again later.', ErrorCode.RATE_LIMITED));
   },
@@ -47,7 +47,7 @@ const registerLimiter = rateLimit({
   max: 5,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: () => isTest,
+  skip: () => !rateLimitingEnabled(),
   handler: (_req, _res, next) => {
     next(new ApiError(429, 'Too many accounts created. Please try again later.', ErrorCode.RATE_LIMITED));
   },

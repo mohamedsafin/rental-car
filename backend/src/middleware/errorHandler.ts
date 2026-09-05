@@ -21,6 +21,54 @@ import type { ErrorResponse } from '../utils/apiResponse';
 import { isProduction } from '../config/env';
 import { logger } from '../config/logger';
 
+/**
+ * body-parser errors, translated.
+ *
+ * These are CLIENT mistakes - too big, not JSON, wrong charset - so they must
+ * report as 4xx. Identified by body-parser's own `type` field rather than by
+ * message text, which changes between versions.
+ */
+function normaliseBodyParserError(error: unknown): NormalisedError | null {
+  if (typeof error !== 'object' || error === null) return null;
+
+  const candidate = error as { type?: string; status?: number; statusCode?: number; message?: string };
+  if (typeof candidate.type !== 'string') return null;
+
+  switch (candidate.type) {
+    case 'entity.too.large':
+      return {
+        statusCode: 413,
+        message: 'That request body is too large',
+        code: ErrorCode.VALIDATION_ERROR,
+        errors: [],
+      };
+    case 'entity.parse.failed':
+      return {
+        statusCode: 400,
+        message: 'The request body is not valid JSON',
+        code: ErrorCode.VALIDATION_ERROR,
+        errors: [],
+      };
+    case 'encoding.unsupported':
+    case 'charset.unsupported':
+      return {
+        statusCode: 415,
+        message: 'That content encoding is not supported',
+        code: ErrorCode.VALIDATION_ERROR,
+        errors: [],
+      };
+    case 'request.aborted':
+      return {
+        statusCode: 400,
+        message: 'The request was aborted before it finished',
+        code: ErrorCode.VALIDATION_ERROR,
+        errors: [],
+      };
+    default:
+      return null;
+  }
+}
+
 interface NormalisedError {
   statusCode: number;
   message: string;
@@ -42,6 +90,14 @@ function normalise(error: unknown): NormalisedError {
       errors: [],
     };
   }
+
+  // body-parser attaches `type` and a status to its own failures. Without this
+  // branch they fall through to the generic 500 below, so a client posting a
+  // 2MB body or malformed JSON gets "Something went wrong" - which reads as
+  // our fault, pollutes error monitoring with noise we cannot act on, and
+  // tells the caller nothing about what to fix.
+  const bodyParserError = normaliseBodyParserError(error);
+  if (bodyParserError) return bodyParserError;
 
   if (error instanceof ApiError) {
     return {
