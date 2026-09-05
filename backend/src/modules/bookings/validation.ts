@@ -50,6 +50,10 @@ export const createBookingSchema = z
     /// The promo code as typed. Re-validated server-side at this point, so a
     /// code that expired between quote and checkout is refused here.
     couponCode: z.string().min(1).max(40).trim().optional(),
+    /// How the customer intends to pay. CASH_ON_PICKUP is refused unless the
+    /// client has switched it on - the browser offering the option does not
+    /// make it available.
+    paymentMethod: z.enum(['ONLINE', 'CASH_ON_PICKUP']).default('ONLINE'),
   })
   .refine((data) => data.returnAt > data.pickupAt, {
     message: 'Return must be after pickup',

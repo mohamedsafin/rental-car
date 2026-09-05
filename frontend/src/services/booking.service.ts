@@ -9,6 +9,7 @@ import type { Vehicle } from '../types/vehicle';
 import type {
   AdditionalService,
   AvailabilityResult,
+  PaymentOption,
   QuoteResponse,
   SearchCriteria,
 } from '../types/pricing';
@@ -41,4 +42,8 @@ export const bookingService = {
   }) => postData<QuoteResponse>('/pricing/quote', body),
 
   listServices: () => getData<{ services: AdditionalService[] }>('/pricing/services'),
+
+  /** What the checkout may offer. Derived from settings, not hardcoded here. */
+  listPaymentOptions: () =>
+    getData<{ options: PaymentOption[] }>('/pricing/payment-options'),
 };

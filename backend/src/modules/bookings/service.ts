@@ -129,10 +129,33 @@ export const bookingsService = {
     const customer = await customersService.getOrCreateForUser(actor.id);
     const verification = await customersService.getVerificationSummary(customer.id);
 
-    // BRD 3: documents are verified BEFORE payment.
-    const initialStatus: BookingStatus = verification.isVerified
-      ? 'PAYMENT_PENDING'
-      : 'DOCUMENT_VERIFICATION';
+    /*
+     * Cash on pickup, if the client allows it.
+     *
+     * Checked HERE rather than trusted from the request: the option appearing
+     * in a browser does not make it available, and a booking that reserves a
+     * car without money is exactly the request worth re-deciding server-side.
+     */
+    const cashAllowed = await settingsService.getBoolean(SettingKey.ALLOW_CASH_ON_PICKUP);
+    const wantsCash = input.paymentMethod === 'CASH_ON_PICKUP';
+
+    if (wantsCash && cashAllowed !== true) {
+      throw ApiError.badRequest('Paying at pickup is not available. Please pay online to confirm.');
+    }
+
+    /*
+     * BRD 3: documents are verified BEFORE payment, whichever way they pay.
+     *
+     * A verified CASH booking goes straight to CONFIRMED - the car is
+     * reserved, and the money arrives at the counter. It is the one status
+     * transition in the system that happens without a payment, which is why
+     * the handover refuses to release the vehicle until the cash is recorded.
+     */
+    const initialStatus: BookingStatus = !verification.isVerified
+      ? 'DOCUMENT_VERIFICATION'
+      : wantsCash
+        ? 'CONFIRMED'
+        : 'PAYMENT_PENDING';
 
     const holdMinutes = await settingsService.getNumberOr(SettingKey.BOOKING_HOLD_MINUTES, 30);
     const bufferHours = await settingsService.getNumberOr(SettingKey.TURNAROUND_BUFFER_HOURS, 0);
@@ -165,8 +188,11 @@ export const bookingsService = {
               returnAt: input.returnAt,
               status: initialStatus,
               // The hold is what stops an abandoned checkout taking a car off
-              // sale indefinitely.
-              holdExpiresAt: new Date(Date.now() + holdMinutes * 60_000),
+              // sale indefinitely. A cash booking is already CONFIRMED, so it
+              // is not "awaiting checkout" and must not silently lapse - a
+              // no-show is handled by cancelling it, deliberately, not by a
+              // timer nobody saw.
+              holdExpiresAt: wantsCash ? null : new Date(Date.now() + holdMinutes * 60_000),
 
               // --- Price snapshot, straight from the engine ---------------
               rentalDays: quote.period.rentalDays,
@@ -175,6 +201,7 @@ export const bookingsService = {
               deliveryFee: new Prisma.Decimal(quote.totals.deliveryFee),
               discountAmount: new Prisma.Decimal(quote.totals.discountAmount),
               couponCode: quote.coupon?.code ?? null,
+              paymentMethod: wantsCash ? 'CASH_ON_PICKUP' : 'ONLINE',
               taxAmount: new Prisma.Decimal(quote.totals.taxAmount),
               totalAmount: new Prisma.Decimal(quote.totals.rentalTotal),
               securityDeposit: new Prisma.Decimal(quote.totals.securityDeposit),
@@ -309,6 +336,21 @@ export const bookingsService = {
           .toLowerCase()
           .replace(/_/g, ' ')}`,
       );
+    }
+
+    /*
+     * The one shortcut past payment, and it is only open to cash bookings.
+     *
+     * Letting staff move ANY booking straight to CONFIRMED would turn the
+     * whole payment step into an honour system - a click could confirm an
+     * unpaid online booking and the car would go out with nothing collected.
+     */
+    if (existing.status === 'DOCUMENT_VERIFICATION' && toStatus === 'CONFIRMED') {
+      if (existing.paymentMethod !== 'CASH_ON_PICKUP') {
+        throw ApiError.conflict(
+          'This booking is paid online. It becomes confirmed when the payment clears, not by hand.',
+        );
+      }
     }
 
     const booking = await prisma.$transaction(async (tx) => {

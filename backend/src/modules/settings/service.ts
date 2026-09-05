@@ -118,4 +118,9 @@ export const SettingKey = {
   COMPANY_EMAIL: 'company.email',
   /// UAE Tax Registration Number. Legally required on a tax invoice.
   COMPANY_TRN: 'company.trn',
+
+  /// Whether a customer may reserve a vehicle and pay cash at the counter.
+  /// OFF unless the client turns it on: it is the only path that holds a car
+  /// without money.
+  ALLOW_CASH_ON_PICKUP: 'payments.allow_cash_on_pickup',
 } as const;

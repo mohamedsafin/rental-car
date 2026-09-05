@@ -8,7 +8,7 @@
 import { Router, raw } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate';
-import { authorizeAdmin } from '../../middleware/authorize';
+import { authorizeAdmin, authorizeStaff } from '../../middleware/authorize';
 import { validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { sendCreated, sendSuccess } from '../../utils/apiResponse';
@@ -160,6 +160,45 @@ router.post(
       },
       'Refund requested',
     );
+  }),
+);
+
+/**
+ * POST /payments/booking/:bookingId/cash
+ *
+ * Record cash taken at the counter. STAFF only.
+ *
+ * The counterpart to the handover guard: a pay-at-pickup booking is CONFIRMED
+ * but unpaid, and the vehicle is not released until this has been called.
+ */
+router.post(
+  '/booking/:bookingId/cash',
+  authorizeStaff,
+  validate({
+    params: z.object({ bookingId: z.string().uuid('Invalid booking id') }),
+    body: z.object({
+      type: z.enum(['RENTAL', 'SECURITY_DEPOSIT']).default('RENTAL'),
+      /// Optional. Defaults to what the booking says is owed - a till that
+      /// accepts whatever the form posts is not a till.
+      amount: z
+        .string()
+        .regex(/^\d{1,8}(\.\d{1,2})?$/, 'Enter an amount like 250 or 249.50')
+        .optional(),
+      /// Receipt number, so the drawer can be reconciled later.
+      reference: z.string().max(60).trim().optional(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const body = req.body as { type: 'RENTAL' | 'SECURITY_DEPOSIT'; amount?: string; reference?: string };
+
+    const payment = await paymentsService.recordCash(req.params.bookingId as string, body, {
+      id: req.user!.id,
+      email: req.user!.email,
+      role: req.user!.role,
+      ...requestContext(req),
+    });
+
+    sendCreated(res, payment, 'Cash payment recorded');
   }),
 );
 

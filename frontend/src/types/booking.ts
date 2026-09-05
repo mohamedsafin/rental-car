@@ -52,6 +52,9 @@ export interface Booking {
   customer: { id: string; fullName: string; email: string; phone: string | null } | null;
 
   period: { pickupAt: string; returnAt: string; rentalDays: number };
+
+  /** How this booking is being paid for. Fixed at checkout. */
+  paymentMethod: 'ONLINE' | 'CASH_ON_PICKUP';
   locations: {
     pickup: { id: string; name: string } | null;
     dropoff: { id: string; name: string } | null;

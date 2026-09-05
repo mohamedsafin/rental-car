@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PriceBreakdown from './PriceBreakdown';
-import { toIso, useAdditionalServices, useQuote } from '../features/booking/useBooking';
+import { toIso, useAdditionalServices, usePaymentOptions, useQuote } from '../features/booking/useBooking';
 import { useCreateBooking } from '../features/bookings/useBookings';
 import { useAuth } from '../hooks/useAuth';
 import type { Vehicle } from '../types/vehicle';
@@ -75,6 +75,11 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
    * beside the field, leaving the quote intact.
    */
   const [rejectedCoupon, setRejectedCoupon] = useState<{ code: string; reason: string } | null>(null);
+
+  // Which methods are on offer comes from the SERVER, not a constant here.
+  // Switching cash off in Settings has to actually remove the option.
+  const { data: paymentOptions } = usePaymentOptions();
+  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH_ON_PICKUP'>('ONLINE');
 
   const { data: serviceData } = useAdditionalServices();
 
@@ -296,6 +301,52 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
 
           <PriceBreakdown quote={data.quote} />
 
+          {/*
+            How to pay. Only rendered when there is a real choice - a single
+            radio button is a decision the customer does not have.
+          */}
+          {(paymentOptions?.options.filter((option) => option.available).length ?? 0) > 1 && (
+            <fieldset className="rounded-card border border-ink-200 bg-white p-5">
+              <legend className="px-1 text-sm font-semibold text-ink-900">How would you like to pay?</legend>
+
+              <div className="mt-2 space-y-2">
+                {paymentOptions?.options
+                  .filter((option) => option.available)
+                  .map((option) => (
+                    <label
+                      key={option.value}
+                      className={
+                        paymentMethod === option.value
+                          ? 'flex cursor-pointer gap-3 rounded-lg border border-ink-900 bg-ink-50/60 p-3'
+                          : 'flex cursor-pointer gap-3 rounded-lg border border-ink-200 p-3 hover:border-ink-300'
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value={option.value}
+                        checked={paymentMethod === option.value}
+                        onChange={() => setPaymentMethod(option.value)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-ink-900">{option.label}</span>
+                        <span className="block text-xs text-ink-500">{option.detail}</span>
+                      </span>
+                    </label>
+                  ))}
+              </div>
+
+              {paymentMethod === 'CASH_ON_PICKUP' && (
+                <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  The vehicle is reserved for you now. Bring {data.quote.currency}{' '}
+                  {data.quote.totals.totalPayable} in cash - the rental plus the refundable deposit -
+                  when you collect it. The keys are handed over once payment is taken.
+                </p>
+              )}
+            </fieldset>
+          )}
+
           {bookingError && (
             <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {bookingError}
@@ -318,6 +369,7 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
                     // Re-checked server-side here. A code that expired between
                     // the quote and this click is refused at this point.
                     couponCode: appliedCoupon || undefined,
+                    paymentMethod,
                   },
                   {
                     onSuccess: (result) => navigate(`/account/bookings/${result.booking.id}`),

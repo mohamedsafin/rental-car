@@ -4125,6 +4125,59 @@
         }
       }
     },
+    "/payments/booking/{bookingId}/cash": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "POST /payments/booking/:bookingId/cash",
+        "description": "Requires role: ADMIN or STAFF.",
+        "operationId": "postPaymentsBookingByBookingIdCash",
+        "parameters": [
+          {
+            "name": "bookingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The bookingId."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "201": {
+            "$ref": "#/components/responses/Created"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
     "/payments/booking/{id}": {
       "get": {
         "tags": [
@@ -4222,6 +4275,31 @@
           },
           "201": {
             "$ref": "#/components/responses/Created"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/pricing/payment-options": {
+      "get": {
+        "tags": [
+          "pricing"
+        ],
+        "summary": "GET /pricing/payment-options",
+        "description": "Public - no token required.",
+        "operationId": "getPricingPayment-options",
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
           },
           "400": {
             "$ref": "#/components/responses/ValidationError"
@@ -5831,7 +5909,7 @@
   },
   "x-generation": {
     "note": "Paths are generated from the live router. Run `npm run openapi:generate` after adding a route.",
-    "routeCount": 135,
-    "undocumentedEndpoints": 95
+    "routeCount": 137,
+    "undocumentedEndpoints": 97
   }
 }

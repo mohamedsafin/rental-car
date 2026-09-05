@@ -110,6 +110,11 @@ async function main(): Promise<void> {
     // a fee would not be - so this one is seeded with a working value.
     { key: 'fleet.expiry_reminder_days', value: '[30,15,7,0]', valueType: 'JSON', category: 'SYSTEM', label: 'Expiry reminder days', description: 'JSON array of day offsets before expiry to alert on (BRD 41).' },
 
+    // OFF by default. Accepting cash at the counter is a commercial decision
+    // with real exposure - a no-show costs a car-day - so the client turns it
+    // on deliberately rather than inheriting it.
+    { key: 'payments.allow_cash_on_pickup', value: 'false', valueType: 'BOOLEAN', category: 'PAYMENT', label: 'Allow cash on pickup', description: 'Lets a customer reserve without paying online. The vehicle is still not released until the cash is recorded.' },
+
     { key: 'rental.minimum_rental_hours', value: '1', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Minimum rental duration (hours)', description: 'Structural floor. Confirm the commercial minimum with the client.' },
     { key: 'rental.maximum_rental_days', value: '365', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Maximum rental duration (days)' },
     { key: 'rental.booking_hold_minutes', value: '30', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Unpaid booking hold (minutes)', description: 'How long an unpaid booking holds a vehicle before the hold lapses.' },

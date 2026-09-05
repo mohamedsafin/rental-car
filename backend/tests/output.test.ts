@@ -806,3 +806,171 @@ describe('Legal documents (BRD 45-47)', () => {
     expect(after).toBe(before + 1);
   });
 });
+
+describe('Cash on pickup (BRD 19)', () => {
+  /**
+   * The one path that reserves a vehicle without money, so both guards are
+   * asserted: the setting gates the option, and the handover gates the keys.
+   */
+  async function setCash(enabled: boolean) {
+    await prisma.systemSetting.upsert({
+      where: { key: 'payments.allow_cash_on_pickup' },
+      update: { value: String(enabled) },
+      create: {
+        key: 'payments.allow_cash_on_pickup',
+        value: String(enabled),
+        valueType: 'BOOLEAN',
+        category: 'PAYMENT',
+        label: 'Allow cash on pickup',
+      },
+    });
+    clearSettingsCache();
+  }
+
+  /**
+   * Book with cash and get it to CONFIRMED.
+   *
+   * The test customer has no approved documents, so the booking correctly
+   * starts in DOCUMENT_VERIFICATION - documents come before payment whichever
+   * way they pay. Staff move it on once the documents are checked, which for a
+   * cash booking means straight to CONFIRMED.
+   */
+  async function bookWithCash(days: [number, number]): Promise<{ id: string; body: Record<string, unknown> }> {
+    const created = await request(app)
+      .post(`${API}/bookings`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({
+        vehicleId,
+        pickupAt: future(days[0]),
+        returnAt: future(days[1]),
+        paymentMethod: 'CASH_ON_PICKUP',
+      });
+
+    expect(created.status).toBe(201);
+    const booking = created.body.data.booking as Record<string, unknown> & { id: string; status: string };
+
+    if (booking.status === 'DOCUMENT_VERIFICATION') {
+      const moved = await request(app)
+        .patch(`${API}/bookings/${booking.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'CONFIRMED' });
+      expect(moved.status).toBe(200);
+    }
+
+    return { id: booking.id, body: booking };
+  }
+
+  it('refuses a cash booking while the client has it switched off', async () => {
+    await setCash(false);
+
+    const response = await request(app)
+      .post(`${API}/bookings`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({
+        vehicleId,
+        pickupAt: future(430),
+        returnAt: future(433),
+        paymentMethod: 'CASH_ON_PICKUP',
+      });
+
+    // The option appearing in a browser does not make it available.
+    expect(response.status).toBe(400);
+    expect(response.body.message).toContain('not available');
+  });
+
+  it('confirms without payment once it is switched on, and does not let the hold lapse', async () => {
+    await setCash(true);
+
+    const response = await request(app)
+      .post(`${API}/bookings`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({
+        vehicleId,
+        pickupAt: future(440),
+        returnAt: future(443),
+        paymentMethod: 'CASH_ON_PICKUP',
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.booking.paymentMethod).toBe('CASH_ON_PICKUP');
+    // Documents still come first: an unverified customer waits, whichever way
+    // they intend to pay. A verified one goes straight to CONFIRMED.
+    expect(['CONFIRMED', 'DOCUMENT_VERIFICATION']).toContain(response.body.data.booking.status);
+    // A cash booking is not "awaiting checkout", so an expiry timer would
+    // silently cancel a reservation nobody abandoned.
+    expect(response.body.data.booking.holdExpiresAt).toBeNull();
+  });
+
+  it('ACCEPTANCE: will not hand over the keys until the cash is recorded', async () => {
+    await setCash(true);
+
+    const { id: bookingId } = await bookWithCash([450, 453]);
+
+    const refused = await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/pickup`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 50_000, fuelPercent: 100, customerVerified: true });
+
+    // Without this, "pay at pickup" quietly means "never pay".
+    expect(refused.status).toBe(400);
+    expect(refused.body.message).toContain('unpaid');
+
+    const cash = await request(app)
+      .post(`${API}/payments/booking/${bookingId}/cash`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ type: 'RENTAL', reference: 'RCPT-TEST' });
+
+    expect(cash.status).toBe(201);
+    expect(cash.body.data.status).toBe('SUCCESS');
+
+    const handover = await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/pickup`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 50_000, fuelPercent: 100, customerVerified: true });
+
+    expect(handover.status).toBe(201);
+  });
+
+  it('takes the amount from the BOOKING, not the request', async () => {
+    await setCash(true);
+
+    const { id, body } = await bookWithCash([460, 463]);
+    const booking = { id, pricing: (body as { pricing: { totalAmount: string } }).pricing };
+
+    const cash = await request(app)
+      .post(`${API}/payments/booking/${booking.id}/cash`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ type: 'RENTAL' });
+
+    expect(cash.body.data.amount).toBe(booking.pricing.totalAmount);
+  });
+
+  it('refuses cash against a booking that was paid online', async () => {
+    const booked = await bookAndPay([470, 473]);
+
+    const response = await request(app)
+      .post(`${API}/payments/booking/${booked.bookingId}/cash`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ type: 'RENTAL' });
+
+    // Recording cash on an online booking would double-count the rental.
+    expect(response.status).toBe(400);
+    expect(response.body.message).toContain('double-count');
+  });
+
+  it('keeps cash out of customers hands', async () => {
+    await setCash(true);
+
+    const { id } = await bookWithCash([480, 483]);
+
+    const response = await request(app)
+      .post(`${API}/payments/booking/${id}/cash`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ type: 'RENTAL' });
+
+    // A customer marking their own booking paid would be the whole exploit.
+    expect(response.status).toBe(403);
+
+    await setCash(false);
+  });
+});

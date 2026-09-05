@@ -40,6 +40,7 @@ export function useCreateBooking() {
       customerNotes?: string;
       /** A CODE. Re-validated server-side at checkout. */
       couponCode?: string;
+      paymentMethod?: 'ONLINE' | 'CASH_ON_PICKUP';
     }
   >({
     mutationFn: bookingsService.create,

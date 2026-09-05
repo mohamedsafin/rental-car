@@ -21,6 +21,7 @@ export const bookingsService = {
     customerNotes?: string;
     /** A CODE. Re-validated server-side at checkout. */
     couponCode?: string;
+    paymentMethod?: 'ONLINE' | 'CASH_ON_PICKUP';
   }) => postData<{ booking: Booking }>('/bookings', input),
 
   myBookings: (params: { page?: number; limit?: number; scope?: string }) =>

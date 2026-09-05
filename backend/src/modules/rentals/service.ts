@@ -107,6 +107,34 @@ export const rentalsService = {
       );
     }
 
+    /*
+     * NO KEYS UNTIL THE MONEY IS IN.
+     *
+     * A cash booking reaches CONFIRMED without a payment - that is the whole
+     * point of the option - so this is the control that keeps it safe. It
+     * mirrors what happens at a real counter: the cash is taken, THEN the car
+     * is released. Without it, "pay at pickup" would quietly mean "never pay".
+     *
+     * An online booking is already paid by the time it is CONFIRMED, so this
+     * simply passes for them.
+     */
+    if (booking.paymentMethod === 'CASH_ON_PICKUP') {
+      const paid = await prisma.payment.findFirst({
+        where: {
+          bookingId,
+          type: 'RENTAL',
+          status: { in: ['SUCCESS', 'REFUNDED', 'PARTIALLY_REFUNDED'] },
+        },
+        select: { id: true },
+      });
+
+      if (!paid) {
+        throw ApiError.badRequest(
+          'This is a pay-at-pickup booking and the rental is unpaid. Record the cash payment before handing over the vehicle.',
+        );
+      }
+    }
+
     if (input.mileage < booking.vehicle.currentMileage) {
       // Odometers do not go backwards. Almost always a typo, and one that
       // would make the excess-mileage charge nonsense later.

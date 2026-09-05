@@ -12,7 +12,12 @@ import { useQuery } from '@tanstack/react-query';
 import { bookingService } from '../../services/booking.service';
 import type { NormalisedApiError, PaginatedData } from '../../types/api';
 import type { Vehicle } from '../../types/vehicle';
-import type { AdditionalService, QuoteResponse, SearchCriteria } from '../../types/pricing';
+import type {
+  AdditionalService,
+  PaymentOption,
+  QuoteResponse,
+  SearchCriteria,
+} from '../../types/pricing';
 
 /** Combine the form's separate date and time fields into an ISO instant. */
 export function toIso(date: string, time: string): string {
@@ -71,6 +76,21 @@ export function useBlockedDates(vehicleId: string | undefined) {
     queryKey: ['blocked-dates', vehicleId],
     queryFn: () => bookingService.getBlockedDates(vehicleId as string),
     enabled: Boolean(vehicleId),
+    staleTime: 60_000,
+  });
+}
+
+
+/**
+ * The payment methods the checkout may offer.
+ *
+ * Cached for a minute: whether cash is accepted is a settings value that
+ * changes about once, not per keystroke.
+ */
+export function usePaymentOptions() {
+  return useQuery<{ options: PaymentOption[] }, NormalisedApiError>({
+    queryKey: ['payment-options'],
+    queryFn: bookingService.listPaymentOptions,
     staleTime: 60_000,
   });
 }

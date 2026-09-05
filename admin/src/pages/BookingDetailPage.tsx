@@ -13,6 +13,7 @@ import { Link, useParams } from 'react-router-dom';
 import BookingStatusBadge from '../components/BookingStatusBadge';
 import DepositManager from '../components/DepositManager';
 import RentalPanel from '../components/RentalPanel';
+import CashPaymentPanel from '../components/CashPaymentPanel';
 import {
   NEXT_STATUSES,
   useAdminBooking,
@@ -235,6 +236,9 @@ export default function BookingDetailPage() {
           </div>
         </dl>
       </section>
+
+      {/* Only renders for a pay-at-pickup booking. */}
+      <CashPaymentPanel booking={booking} />
 
       <RentalPanel booking={booking} vehicleMileage={booking.vehicle.currentMileage ?? 0} />
 

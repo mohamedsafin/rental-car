@@ -96,3 +96,16 @@ export interface SearchCriteria {
   pickupLocationId?: string;
   dropoffLocationId?: string;
 }
+
+
+/** A way to pay, as offered by the server. */
+export interface PaymentOption {
+  value: 'ONLINE' | 'CASH_ON_PICKUP';
+  label: string;
+  detail: string;
+  /**
+   * False when the client has switched it off. The option is still described
+   * so the UI can explain what is missing rather than silently hiding it.
+   */
+  available: boolean;
+}

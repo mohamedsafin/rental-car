@@ -14,6 +14,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { sendSuccess } from '../../utils/apiResponse';
 import { prisma } from '../../config/prisma';
 import { availabilityService } from '../availability/service';
+import { SettingKey, settingsService } from '../settings/service';
 import { pricingService } from './service';
 
 const isoDateTime = z
@@ -84,6 +85,41 @@ router.post(
     });
 
     sendSuccess(res, { quote, availability }, 'Quote calculated');
+  }),
+);
+
+/**
+ * GET /pricing/payment-options
+ *
+ * What the checkout may offer. Public, because the customer sees it before
+ * signing in - and it is derived from settings rather than hardcoded in the
+ * browser, so switching cash off actually removes the option.
+ */
+router.get(
+  '/payment-options',
+  asyncHandler(async (_req, res) => {
+    const cashAllowed = await settingsService.getBoolean(SettingKey.ALLOW_CASH_ON_PICKUP);
+
+    sendSuccess(
+      res,
+      {
+        options: [
+          {
+            value: 'ONLINE',
+            label: 'Pay now, online',
+            detail: 'Card payment. Your booking is confirmed as soon as it clears.',
+            available: true,
+          },
+          {
+            value: 'CASH_ON_PICKUP',
+            label: 'Pay at pickup',
+            detail: 'Reserve now and pay in cash when you collect the vehicle.',
+            available: cashAllowed === true,
+          },
+        ],
+      },
+      'Payment options retrieved',
+    );
   }),
 );
 

@@ -65,6 +65,125 @@ const PAYABLE_STATUSES: Record<string, string[]> = {
 
 export const paymentsService = {
   /**
+   * Record cash taken at the counter (BRD 19).
+   *
+   * Staff only, and it is the counterpart to the handover guard: a
+   * pay-at-pickup booking is CONFIRMED but unpaid, and the vehicle is not
+   * released until this has been called.
+   *
+   * Written as a SUCCESS payment immediately, with no PENDING state and no
+   * webhook. That is honest rather than a shortcut - a card payment is pending
+   * because a third party is still deciding, whereas notes in a drawer have
+   * either been handed over or they have not, and the staff member pressing
+   * the button is the one who counted them.
+   */
+  async recordCash(
+    bookingId: string,
+    input: { type: 'RENTAL' | 'SECURITY_DEPOSIT'; amount?: string; reference?: string },
+    actor: { id: string; email: string; role: string; ipAddress?: string; userAgent?: string },
+  ) {
+    const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!booking) throw ApiError.notFound('Booking not found');
+
+    if (booking.paymentMethod !== 'CASH_ON_PICKUP') {
+      throw ApiError.badRequest(
+        'This booking was taken as an online payment. Recording cash against it would double-count the rental.',
+      );
+    }
+
+    if (booking.status === 'CANCELLED' || booking.status === 'COMPLETED') {
+      throw ApiError.conflict(
+        `A ${booking.status.toLowerCase()} booking cannot take a payment`,
+      );
+    }
+
+    const existing = await prisma.payment.findFirst({
+      where: { bookingId, type: input.type, status: { in: ['SUCCESS', 'REFUNDED', 'PARTIALLY_REFUNDED'] } },
+    });
+    if (existing) {
+      throw ApiError.conflict(`The ${input.type.toLowerCase().replace(/_/g, ' ')} is already paid`);
+    }
+
+    // The amount comes from the BOOKING, not the request, unless staff
+    // deliberately override it - the same rule as everywhere else. A till
+    // that accepts whatever figure the form posts is not a till.
+    const expected =
+      input.type === 'RENTAL' ? booking.totalAmount : booking.securityDeposit;
+    const amount = input.amount ? new Prisma.Decimal(input.amount) : expected;
+
+    const payment = await prisma.$transaction(async (tx) => {
+      const created = await tx.payment.create({
+        data: {
+          bookingId,
+          type: input.type,
+          status: 'SUCCESS',
+          amount,
+          currency: booking.currency,
+          provider: 'cash',
+          providerReference: input.reference ?? null,
+          idempotencyKey: `cash_${bookingId}_${input.type}_${Date.now()}`,
+          paidAt: new Date(),
+        },
+      });
+
+      if (input.type === 'SECURITY_DEPOSIT') {
+        const deposit = await tx.securityDeposit.upsert({
+          where: { bookingId },
+          update: { status: 'HELD', heldAt: new Date() },
+          create: {
+            bookingId,
+            amount,
+            currency: booking.currency,
+            status: 'HELD',
+            heldAt: new Date(),
+          },
+        });
+
+        await tx.depositTransaction.create({
+          data: {
+            depositId: deposit.id,
+            type: 'HOLD',
+            amount,
+            reason: 'Security deposit received in cash',
+          },
+        });
+      }
+
+      return created;
+    });
+
+    await auditService.record({
+      action: 'payment.cash_recorded',
+      actorId: actor.id,
+      actorEmail: actor.email,
+      actorRole: actor.role as 'ADMIN' | 'STAFF',
+      entityType: 'Payment',
+      entityId: payment.id,
+      // Who took the money matters more here than anywhere else in the system:
+      // this is the one payment with no third-party record behind it.
+      metadata: {
+        bookingNumber: booking.bookingNumber,
+        type: input.type,
+        amount: amount.toFixed(2),
+        reference: input.reference,
+      },
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+
+    fireAndForget(notify.paymentReceived(payment.id));
+
+    return {
+      id: payment.id,
+      type: payment.type,
+      status: payment.status,
+      amount: payment.amount.toFixed(2),
+      currency: payment.currency,
+      paidAt: payment.paidAt?.toISOString() ?? null,
+    };
+  },
+
+  /**
    * Start a payment: create our record, ask the provider for a checkout
    * session, and hand the customer the URL.
    *

@@ -488,6 +488,18 @@ model Location {
 ///
 /// Which of these BLOCK a vehicle is the single most important decision in the
 /// availability engine - see `BLOCKING_STATUSES` in the availability module.
+/// How the customer intends to settle the rental.
+enum PaymentMethod {
+  /// Card through the gateway, before the booking is confirmed.
+  ONLINE
+  /// Cash handed over at the counter when the keys are (BRD 19).
+  ///
+  /// This is the ONE path that reserves a vehicle without money, so it is off
+  /// unless `payments.allow_cash_on_pickup` says otherwise, and the handover
+  /// refuses to release the car until the cash has actually been recorded.
+  CASH_ON_PICKUP
+}
+
 enum BookingStatus {
   /// Created but not yet paid. Holds the vehicle only until `holdExpiresAt`.
   PENDING
@@ -573,12 +585,17 @@ model Booking {
   /// or withdrawn later, and this booking's paperwork should still say what
   /// the customer actually used.
   couponCode       String?
-  taxAmount        Decimal @default(0) @db.Decimal(10, 2)
+
+  /// How this booking will be paid for. Chosen at checkout and not editable
+  /// afterwards by the customer - switching to cash after reserving a car
+  /// online would be a way to hold stock for free.
+  paymentMethod   PaymentMethod @default(ONLINE)
+  taxAmount       Decimal       @default(0) @db.Decimal(10, 2)
   /// Rental total EXCLUDING the deposit.
-  totalAmount      Decimal @db.Decimal(10, 2)
+  totalAmount     Decimal       @db.Decimal(10, 2)
   /// Held separately: a deposit is refundable and is not revenue.
-  securityDeposit  Decimal @default(0) @db.Decimal(10, 2)
-  currency         String  @default("AED")
+  securityDeposit Decimal       @default(0) @db.Decimal(10, 2)
+  currency        String        @default("AED")
 
   // --- Cancellation (BRD 31) -------------------------------------------
   cancelledAt        DateTime?

@@ -62,6 +62,9 @@ export interface PublicBooking {
   /** Present for staff; a customer already knows who they are. */
   customer: { id: string; fullName: string; email: string; phone: string | null } | null;
 
+  /** How this booking is being paid for. Fixed at checkout. */
+  paymentMethod: 'ONLINE' | 'CASH_ON_PICKUP';
+
   period: {
     pickupAt: string;
     returnAt: string;
@@ -151,6 +154,8 @@ export function toPublicBooking(
     },
 
     customer: includePrivate ? booking.customer : null,
+
+    paymentMethod: booking.paymentMethod,
 
     period: {
       pickupAt: booking.pickupAt.toISOString(),

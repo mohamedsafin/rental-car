@@ -32,7 +32,13 @@ import type { BookingStatus } from '@prisma/client';
 
 export const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   PENDING: ['DOCUMENT_VERIFICATION', 'PAYMENT_PENDING', 'CANCELLED'],
-  DOCUMENT_VERIFICATION: ['PAYMENT_PENDING', 'CANCELLED'],
+  /*
+   * CONFIRMED is reachable from here ONLY for a pay-at-pickup booking, which
+   * `changeStatus` enforces. Without it a cash customer whose documents are
+   * approved after booking would be stranded: the machine would insist they
+   * pay online first, which is the one thing they chose not to do.
+   */
+  DOCUMENT_VERIFICATION: ['PAYMENT_PENDING', 'CONFIRMED', 'CANCELLED'],
   PAYMENT_PENDING: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['READY_FOR_PICKUP', 'CANCELLED'],
   READY_FOR_PICKUP: ['ACTIVE', 'CANCELLED'],
