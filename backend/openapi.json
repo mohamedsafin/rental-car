@@ -4622,6 +4622,41 @@
         }
       }
     },
+    "/rentals/inspections": {
+      "get": {
+        "tags": [
+          "rentals"
+        ],
+        "summary": "GET /rentals/inspections",
+        "description": "Requires role: ADMIN or STAFF.",
+        "operationId": "getRentalsInspections",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
     "/rentals/inspections/{inspectionId}/photos": {
       "post": {
         "tags": [
@@ -5634,7 +5669,7 @@
   },
   "x-generation": {
     "note": "Paths are generated from the live router. Run `npm run openapi:generate` after adding a route.",
-    "routeCount": 130,
-    "undocumentedEndpoints": 90
+    "routeCount": 131,
+    "undocumentedEndpoints": 91
   }
 }

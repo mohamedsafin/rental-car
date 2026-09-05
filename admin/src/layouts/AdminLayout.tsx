@@ -24,7 +24,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: 'Fleet',
     items: [
       { label: 'Vehicles', to: '/vehicles' },
-      { label: 'Categories', phase: 'Phase 4' },
+      { label: 'Categories', to: '/categories' },
       { label: 'Maintenance', to: '/maintenance' },
       { label: 'Insurance & expiries', to: '/insurance' },
     ],
@@ -33,9 +33,9 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: 'Rentals',
     items: [
       { label: 'Bookings', to: '/bookings' },
-      { label: 'Pickups', phase: 'see a booking' },
-      { label: 'Returns', phase: 'see a booking' },
-      { label: 'Inspections', phase: 'see a booking' },
+      { label: 'Pickups', to: '/pickups' },
+      { label: 'Returns', to: '/returns' },
+      { label: 'Inspections', to: '/inspections' },
     ],
   },
   {

@@ -94,6 +94,14 @@ export const listBookingsQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   from: isoDateTime.optional(),
   to: isoDateTime.optional(),
+  /**
+   * Which date `from`/`to` apply to.
+   *
+   * "Due for handover today" and "due back today" are different questions
+   * about the same booking, and the answer hinges on which timestamp you
+   * filter. Defaults to `pickup` so existing callers are unaffected.
+   */
+  dateField: z.enum(['pickup', 'return']).default('pickup'),
 });
 
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;

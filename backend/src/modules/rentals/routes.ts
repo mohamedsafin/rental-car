@@ -14,11 +14,12 @@ import { authorizeStaff, authorizeAdmin } from '../../middleware/authorize';
 import { getValidatedQuery, validate } from '../../middleware/validate';
 import { uploadVehicleImages } from '../../middleware/upload';
 import { asyncHandler } from '../../utils/asyncHandler';
-import { sendCreated, sendSuccess } from '../../utils/apiResponse';
+import { sendCreated, sendPaginated, sendSuccess } from '../../utils/apiResponse';
 import { ApiError } from '../../utils/ApiError';
 import { prisma } from '../../config/prisma';
 import { requestContext } from '../audit/service';
 import { rentalsService, type RentalActor } from './service';
+import { inspectionsService } from './inspectionsService';
 import { extensionsService } from './extensionService';
 import { inspectionPhotoService } from './photoService';
 
@@ -110,11 +111,37 @@ async function assertCanView(bookingId: string, actor: RentalActor): Promise<voi
   if (!booking || booking.customerId !== actor.id) throw ApiError.notFound('Booking not found');
 }
 
+const inspectionListSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  type: z.enum(['PICKUP', 'RETURN']).optional(),
+  withFindings: z.coerce.boolean().optional(),
+});
+
 const router = Router();
 
 router.use(authenticate);
 
 /** GET /rentals/booking/:bookingId - the rental, inspections and charges. */
+/**
+ * GET /rentals/inspections
+ *
+ * Every inspection across the fleet, newest first. Staff only.
+ *
+ * Registered BEFORE /booking/:bookingId so the literal path is not swallowed
+ * by a parameterised one.
+ */
+router.get(
+  '/inspections',
+  authorizeStaff,
+  validate({ query: inspectionListSchema }),
+  asyncHandler(async (req, res) => {
+    const query = getValidatedQuery<z.infer<typeof inspectionListSchema>>(req);
+    const { items, total } = await inspectionsService.list(query);
+    sendPaginated(res, items, query.page, query.limit, total);
+  }),
+);
+
 router.get(
   '/booking/:bookingId',
   validate({ params: bookingIdParam }),

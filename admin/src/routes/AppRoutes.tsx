@@ -32,6 +32,10 @@ import CouponsPage from '../pages/CouponsPage';
 import InvoicesPage from '../pages/InvoicesPage';
 import NotificationsPage from '../pages/NotificationsPage';
 import LegalPage from '../pages/LegalPage';
+import CategoriesPage from '../pages/CategoriesPage';
+import PickupsPage from '../pages/PickupsPage';
+import ReturnsPage from '../pages/ReturnsPage';
+import InspectionsPage from '../pages/InspectionsPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 export default function AppRoutes() {
@@ -61,6 +65,10 @@ export default function AppRoutes() {
           <Route path="/invoices" element={<InvoicesPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/legal" element={<LegalPage />} />
+          <Route path="/categories" element={<CategoriesPage />} />
+          <Route path="/pickups" element={<PickupsPage />} />
+          <Route path="/returns" element={<ReturnsPage />} />
+          <Route path="/inspections" element={<InspectionsPage />} />
           {/* Phase 11: /settings, /audit-logs */}
           <Route path="*" element={<NotFoundPage />} />
         </Route>

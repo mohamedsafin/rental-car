@@ -528,13 +528,18 @@ export const bookingsService = {
     search?: string;
     from?: Date;
     to?: Date;
+    dateField?: 'pickup' | 'return';
   }) {
+    // The pickups board asks "what goes out today", the returns board asks
+    // "what comes back today". Same rows, different timestamp.
+    const dateColumn = query.dateField === 'return' ? 'returnAt' : 'pickupAt';
+
     const where: Prisma.BookingWhereInput = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.vehicleId ? { vehicleId: query.vehicleId } : {}),
       ...(query.from || query.to
         ? {
-            pickupAt: {
+            [dateColumn]: {
               ...(query.from ? { gte: query.from } : {}),
               ...(query.to ? { lte: query.to } : {}),
             },
