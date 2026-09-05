@@ -18,7 +18,7 @@
  *     faked without the file actually being a JPEG.
  */
 import multer from 'multer';
-import type { Request } from 'express';
+import type { Request, RequestHandler } from 'express';
 import { env } from '../config/env';
 import { ApiError, ErrorCode } from '../utils/ApiError';
 
@@ -72,15 +72,68 @@ function imageFileFilter(
   callback(null, true);
 }
 
+/**
+ * Repair a filename mangled by multipart's default encoding.
+ *
+ * RFC 7578 leaves the charset of a `filename` parameter unstated, so busboy -
+ * and therefore multer - hands it over decoded as latin1. Any byte above 0x7F
+ * is then wrong: a customer uploading `வீடு வாடகைக்கு.pdf` had it stored as
+ * `à®µà¯...`, permanently, in the database - not just misdrawn on screen.
+ *
+ * Re-encoding those code points as bytes and decoding them as UTF-8 recovers
+ * the original exactly, because latin1 is a byte-for-byte mapping and nothing
+ * was lost. If the name was plain ASCII, the round trip is a no-op.
+ *
+ * Guarded: a name that is genuinely latin1 rather than mangled UTF-8 would
+ * decode to U+FFFD replacement characters, so that result is discarded and the
+ * original kept. Better a name that looks odd than one replaced with question
+ * marks.
+ */
+export function decodeUploadFilename(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  if (!/[-ÿ]/.test(name)) return name;
+
+  const decoded = Buffer.from(name, 'latin1').toString('utf8');
+  return decoded.includes('�') ? name : decoded;
+}
+
+/**
+ * Runs multer, then fixes the filenames it produced.
+ *
+ * Applied here rather than at each of the six call sites, because "remember to
+ * decode the filename" is exactly the kind of step that gets forgotten on the
+ * seventh.
+ */
+function withDecodedFilenames(handler: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    handler(req, res, (error?: unknown) => {
+      if (error) return next(error);
+
+      const files = [
+        ...(req.file ? [req.file] : []),
+        ...(Array.isArray(req.files) ? req.files : Object.values(req.files ?? {}).flat()),
+      ];
+
+      for (const file of files) {
+        file.originalname = decodeUploadFilename(file.originalname);
+      }
+
+      next();
+    });
+  };
+}
+
 /** Upload handler for vehicle images: up to 10 files per request. */
-export const uploadVehicleImages = multer({
+export const uploadVehicleImages = withDecodedFilenames(
+  multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: env.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
     files: 10,
   },
-  fileFilter: imageFileFilter,
-}).array('images', 10);
+    fileFilter: imageFileFilter,
+  }).array('images', 10),
+);
 
 /**
  * Upload handler for customer identity documents: ONE file per request.
@@ -89,7 +142,8 @@ export const uploadVehicleImages = multer({
  * expiry date, and a batch upload would either lose that detail or need a
  * parallel array of metadata that can fall out of step with the files.
  */
-export const uploadCustomerDocument = multer({
+export const uploadCustomerDocument = withDecodedFilenames(
+  multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: env.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
@@ -108,7 +162,8 @@ export const uploadCustomerDocument = multer({
     }
     callback(null, true);
   },
-}).single('document');
+  }).single('document'),
+);
 
 /**
  * Verify the bytes match the declared type. Call this in the service, on every

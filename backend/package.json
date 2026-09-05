@@ -20,6 +20,7 @@
     "seed:demo": "tsx prisma/seedDemo.ts",
     "seed:demo:clear": "tsx prisma/seedDemo.ts --clear",
     "storage:sweep": "tsx scripts/storageSweep.ts",
+    "repair:filenames": "tsx scripts/repairFilenames.ts",
     "openapi:generate": "tsx scripts/generateOpenApi.ts",
     "openapi:check": "tsx scripts/generateOpenApi.ts --check",
     "audit:prod": "npm audit --omit=dev"
