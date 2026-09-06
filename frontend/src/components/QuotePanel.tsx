@@ -379,7 +379,11 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
               }}
               className="w-full rounded-md bg-ink-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-300 disabled:text-ink-600"
             >
-              {createBooking.isPending ? 'Creating booking...' : 'Book this vehicle'}
+              {createBooking.isPending
+                ? 'Creating booking...'
+                : data.availability.available
+                  ? 'Book this vehicle'
+                  : 'Not available for these dates'}
             </button>
           ) : (
             <Link
@@ -390,8 +394,27 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
             </Link>
           )}
 
+          {/*
+            The reason sits BESIDE the button, not only in the notice at the
+            top of the panel. On a long page the customer scrolls straight past
+            that notice, reaches a greyed-out button with nothing next to it,
+            and concludes the site is broken - which is what happened.
+          */}
+          {!data.availability.available && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              {data.availability.reason ?? 'This vehicle is not free for the dates you picked.'}{' '}
+              Change the dates above, or{' '}
+              <Link to="/search" className="font-medium underline underline-offset-2">
+                see what is free
+              </Link>
+              .
+            </p>
+          )}
+
           <p className="text-center text-xs text-ink-500">
-            Payment is taken at the next step (coming with the payment module).
+            {paymentMethod === 'CASH_ON_PICKUP'
+              ? 'You will pay in cash when you collect the vehicle.'
+              : 'You will be taken to secure payment at the next step.'}
           </p>
         </>
       )}
