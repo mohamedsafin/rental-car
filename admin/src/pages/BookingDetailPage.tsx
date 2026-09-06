@@ -54,6 +54,8 @@ export default function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, isPending, isError, error } = useAdminBooking(id);
   const changeStatus = useChangeBookingStatus();
+  const [nextStatus, setNextStatus] = useState('');
+  const [statusReason, setStatusReason] = useState('');
   const cancelBooking = useCancelBookingAdmin();
 
   const [actionError, setActionError] = useState<string | null>(null);
@@ -100,25 +102,72 @@ export default function BookingDetailPage() {
       {(nextStatuses.length > 0 || canCancel) && (
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h3 className="font-semibold text-slate-900">Move this booking on</h3>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {nextStatuses.map((next) => (
+          {/*
+            A dropdown rather than a row of buttons, and the difference is not
+            only cosmetic: a button fires the moment it is clicked, so a status
+            change was one stray click away and carried no explanation.
+            Choosing, optionally saying why, then applying is a deliberate
+            two-step - and the API has always accepted a `reason` that the
+            buttons never sent. It lands in the status history and the audit
+            log, which is where "why is this booking back at payment pending?"
+            gets answered.
+          */}
+          {nextStatuses.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-slate-600">Move to</span>
+                <select
+                  value={nextStatus}
+                  onChange={(event) => setNextStatus(event.target.value)}
+                  className="w-56 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                >
+                  <option value="">Choose a status...</option>
+                  {nextStatuses.map((next) => (
+                    <option key={next} value={next}>
+                      {next.replace(/_/g, ' ').toLowerCase()}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-slate-600">Reason (optional)</span>
+                <input
+                  value={statusReason}
+                  onChange={(event) => setStatusReason(event.target.value)}
+                  placeholder="Recorded against the change"
+                  className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                />
+              </label>
+
               <button
-                key={next}
                 type="button"
-                disabled={changeStatus.isPending}
+                disabled={!nextStatus || changeStatus.isPending}
                 onClick={() => {
                   setActionError(null);
                   changeStatus.mutate(
-                    { id: booking.id, status: next },
-                    { onError: (err) => setActionError(err.message) },
+                    {
+                      id: booking.id,
+                      status: nextStatus as typeof booking.status,
+                      reason: statusReason.trim() || undefined,
+                    },
+                    {
+                      onSuccess: () => {
+                        setNextStatus('');
+                        setStatusReason('');
+                      },
+                      onError: (err) => setActionError(err.message),
+                    },
                   );
                 }}
-                className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
               >
-                Mark {next.replace(/_/g, ' ').toLowerCase()}
+                {changeStatus.isPending ? 'Applying...' : 'Apply'}
               </button>
-            ))}
+            </div>
+          )}
 
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             {canCancel && !cancelling && (
               <button
                 type="button"
