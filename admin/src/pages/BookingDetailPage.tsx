@@ -101,83 +101,79 @@ export default function BookingDetailPage() {
 
       {(nextStatuses.length > 0 || canCancel) && (
         <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <h3 className="font-semibold text-slate-900">Move this booking on</h3>
           {/*
-            A dropdown rather than a row of buttons, and the difference is not
-            only cosmetic: a button fires the moment it is clicked, so a status
-            change was one stray click away and carried no explanation.
-            Choosing, optionally saying why, then applying is a deliberate
-            two-step - and the API has always accepted a `reason` that the
-            buttons never sent. It lands in the status history and the audit
-            log, which is where "why is this booking back at payment pending?"
-            gets answered.
+            One control, not a row of them. The reason field and the confirm
+            button only appear once a status has actually been chosen, because
+            an empty box and a disabled button are clutter until then. The
+            reason still matters - the API has always accepted one, and it
+            lands in the status history where "why is this booking back at
+            payment pending?" gets answered - it just does not need to occupy
+            the screen before there is anything to explain.
           */}
-          {nextStatuses.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-end gap-2">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-slate-600">Move to</span>
-                <select
-                  value={nextStatus}
-                  onChange={(event) => setNextStatus(event.target.value)}
-                  className="w-56 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                >
-                  <option value="">Choose a status...</option>
-                  {nextStatuses.map((next) => (
-                    <option key={next} value={next}>
-                      {next.replace(/_/g, ' ').toLowerCase()}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-slate-600">Reason (optional)</span>
-                <input
-                  value={statusReason}
-                  onChange={(event) => setStatusReason(event.target.value)}
-                  placeholder="Recorded against the change"
-                  className="w-64 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                />
-              </label>
-
-              <button
-                type="button"
-                disabled={!nextStatus || changeStatus.isPending}
-                onClick={() => {
-                  setActionError(null);
-                  changeStatus.mutate(
-                    {
-                      id: booking.id,
-                      status: nextStatus as typeof booking.status,
-                      reason: statusReason.trim() || undefined,
-                    },
-                    {
-                      onSuccess: () => {
-                        setNextStatus('');
-                        setStatusReason('');
-                      },
-                      onError: (err) => setActionError(err.message),
-                    },
-                  );
-                }}
-                className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-              >
-                {changeStatus.isPending ? 'Applying...' : 'Apply'}
-              </button>
-            </div>
-          )}
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="font-semibold text-slate-900">Move this booking on</h3>
             {canCancel && !cancelling && (
               <button
                 type="button"
                 onClick={() => setCancelling(true)}
-                className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
+                className="text-sm text-red-700 hover:underline"
               >
                 Cancel booking
               </button>
             )}
           </div>
+
+          {nextStatuses.length > 0 && !cancelling && (
+            <>
+              <select
+                value={nextStatus}
+                onChange={(event) => setNextStatus(event.target.value)}
+                className="mt-3 w-full max-w-sm rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">Choose the next status...</option>
+                {nextStatuses.map((next) => (
+                  <option key={next} value={next}>
+                    {next.replace(/_/g, ' ').toLowerCase()}
+                  </option>
+                ))}
+              </select>
+
+              {nextStatus && (
+                <div className="mt-2 flex max-w-sm flex-wrap items-center gap-2">
+                  <input
+                    value={statusReason}
+                    onChange={(event) => setStatusReason(event.target.value)}
+                    placeholder="Why? (optional)"
+                    className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    disabled={changeStatus.isPending}
+                    onClick={() => {
+                      setActionError(null);
+                      changeStatus.mutate(
+                        {
+                          id: booking.id,
+                          status: nextStatus as typeof booking.status,
+                          reason: statusReason.trim() || undefined,
+                        },
+                        {
+                          onSuccess: () => {
+                            setNextStatus('');
+                            setStatusReason('');
+                          },
+                          onError: (err) => setActionError(err.message),
+                        },
+                      );
+                    }}
+                    className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {changeStatus.isPending ? 'Applying...' : 'Apply'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
 
           {cancelling && (
             <div className="mt-3 space-y-2">
