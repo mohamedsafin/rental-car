@@ -25,6 +25,17 @@ interface TemplateSeed {
   subject?: string;
   body: string;
   description: string;
+  /**
+   * Bodies from earlier versions of THIS file that this one replaces.
+   *
+   * The seeder never overwrites the client's wording - but a database still
+   * holding our own superseded default is not the client's wording, it is
+   * ours, and leaving it there means a template that no longer matches the
+   * placeholders the trigger now supplies. Matching on the exact previous
+   * text is what separates the two cases: any edit at all, however small,
+   * and the row is left alone.
+   */
+  supersedes?: string[];
 }
 
 export const NOTIFICATION_TEMPLATES: TemplateSeed[] = [
@@ -52,8 +63,13 @@ You can review it here: {{bookingUrl}}`,
     key: 'booking.confirmed',
     channel: 'EMAIL',
     subject: 'Booking {{bookingNumber}} is confirmed',
-    description: 'Sent when payment succeeds and the vehicle is reserved (BRD 42).',
-    body: `Dear {{customerName}},
+    description:
+      'Sent when a booking becomes confirmed - by payment, or by staff confirming a cash booking (BRD 42).',
+    // {{confirmationLine}} and {{paymentNote}} are filled by the trigger, not
+    // written here, because a booking can be confirmed with or without money
+    // having arrived and one fixed sentence cannot be true of both.
+    supersedes: [
+      `Dear {{customerName}},
 
 Your payment has gone through and {{vehicle}} is reserved for you.
 
@@ -62,6 +78,23 @@ Your payment has gone through and {{vehicle}} is reserved for you.
   Return:  {{returnAt}}
 
 Please bring the documents you uploaded with you.
+
+Manage your booking: {{bookingUrl}}`,
+    ],
+    body: `Dear {{customerName}},
+
+{{confirmationLine}}
+
+  Booking:  {{bookingNumber}}
+  Vehicle:  {{vehicle}}
+  Pick up:  {{pickupAt}} at {{pickupLocation}}
+  Return:   {{returnAt}}
+  Total:    {{total}}
+  Deposit:  {{deposit}} (refundable)
+
+{{paymentNote}}
+
+Please bring the documents you uploaded with you when you collect the vehicle.
 
 Manage your booking: {{bookingUrl}}`,
   },
@@ -176,15 +209,31 @@ depending on your bank.
 
 export async function seedNotificationTemplates(prisma: PrismaClient): Promise<number> {
   let created = 0;
+  let upgraded = 0;
 
   for (const template of NOTIFICATION_TEMPLATES) {
     const existing = await prisma.notificationTemplate.findUnique({
       where: { key_channel: { key: template.key, channel: template.channel } },
     });
 
-    // Never overwrite. Once the client has reworded a message, re-running the
-    // seed must not quietly put our English back.
-    if (existing) continue;
+    if (existing) {
+      // Never overwrite the CLIENT's wording. But if the row still holds a
+      // superseded default of ours, word for word, nobody has edited it and
+      // leaving it is not respect for their text - it is shipping a stale
+      // message whose placeholders the trigger no longer fills.
+      if (template.supersedes?.includes(existing.body)) {
+        await prisma.notificationTemplate.update({
+          where: { id: existing.id },
+          data: {
+            body: template.body,
+            subject: template.subject ?? null,
+            description: template.description,
+          },
+        });
+        upgraded += 1;
+      }
+      continue;
+    }
 
     await prisma.notificationTemplate.create({
       data: {
@@ -199,6 +248,10 @@ export async function seedNotificationTemplates(prisma: PrismaClient): Promise<n
       },
     });
     created += 1;
+  }
+
+  if (upgraded > 0) {
+    console.log(`  ${upgraded} unedited template(s) brought up to date.`);
   }
 
   return created;

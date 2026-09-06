@@ -10,6 +10,7 @@
 import { env, isProduction } from '../../config/env';
 import { logger } from '../../config/logger';
 import { LogNotificationProvider } from './logProvider';
+import { SmtpNotificationProvider } from './smtpProvider';
 import type { NotificationProvider } from './types';
 
 function createProvider(): NotificationProvider {
@@ -27,10 +28,17 @@ function createProvider(): NotificationProvider {
       return new LogNotificationProvider();
 
     case 'smtp':
+      // SMTP is the protocol, not a supplier. Gmail, Microsoft 365, Resend,
+      // Brevo, SES and the client's own mail server all speak it, so this
+      // driver does not pre-empt the choice BRD 51 leaves to the client - it
+      // just means the choice is made with a hostname instead of a code
+      // change.
+      return new SmtpNotificationProvider();
+
     case 'sendgrid':
     case 'twilio':
       throw new Error(
-        `NOTIFICATION_DRIVER="${env.NOTIFICATION_DRIVER}" is not implemented yet. The provider is the client's choice (BRD 51); its driver is written once they confirm it. Use NOTIFICATION_DRIVER=log for development.`,
+        `NOTIFICATION_DRIVER="${env.NOTIFICATION_DRIVER}" is not implemented yet. The provider is the client's choice (BRD 51); its driver is written once they confirm it. Use NOTIFICATION_DRIVER=smtp with their mail server's details, or =log for development.`,
       );
 
     default:
@@ -43,4 +51,4 @@ export const notificationProvider: NotificationProvider = createProvider();
 logger.info('Notification provider initialised', { driver: notificationProvider.name });
 
 export * from './types';
-export { LogNotificationProvider };
+export { LogNotificationProvider, SmtpNotificationProvider };

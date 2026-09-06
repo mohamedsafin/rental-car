@@ -274,7 +274,19 @@ export const bookingsService = {
         ),
       );
 
-      fireAndForget(notify.bookingCreated(booking.id, initialStatus === 'DOCUMENT_VERIFICATION'));
+      /*
+       * A cash booking is CONFIRMED the instant it is created - there is no
+       * payment step to wait for - so the confirmation is the right message
+       * and the only one. Sending "booking received, complete your payment"
+       * to someone whose booking is already firm, and nothing afterwards to
+       * say it was confirmed, is how a customer ends up unsure whether they
+       * have a car.
+       */
+      fireAndForget(
+        initialStatus === 'CONFIRMED'
+          ? notify.bookingConfirmed(booking.id)
+          : notify.bookingCreated(booking.id, initialStatus === 'DOCUMENT_VERIFICATION'),
+      );
 
       await auditService.record({
         action: 'booking.created',
@@ -379,6 +391,20 @@ export const bookingsService = {
       ipAddress: actor.ipAddress,
       userAgent: actor.userAgent,
     });
+
+    /*
+     * The customer is told when their booking becomes confirmed, whoever
+     * confirmed it. The online route already notifies from the payment
+     * service, which updates the booking row directly rather than calling
+     * this method - so this covers the hand-confirmed cash booking without
+     * double-sending to anyone.
+     *
+     * Detached: a mail server being down must not roll back a confirmation
+     * that has already happened.
+     */
+    if (toStatus === 'CONFIRMED') {
+      fireAndForget(notify.bookingConfirmed(bookingId));
+    }
 
     return toPublicBooking(booking);
   },

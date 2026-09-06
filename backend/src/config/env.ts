@@ -93,6 +93,25 @@ const envSchema = z.object({
     (value) => (value === '' ? undefined : value),
     z.string().optional(),
   ),
+  // SMTP, used only when NOTIFICATION_DRIVER=smtp. Optional here rather than
+  // required, because a .env carrying blank SMTP lines while the driver is
+  // `log` is the normal state of a development machine. The smtp driver
+  // checks them itself and refuses to construct without them, so the error
+  // arrives at boot with the driver that needs them named.
+  SMTP_HOST: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+  // Blank must mean "unset", not zero. `z.coerce.number()` turns '' into 0,
+  // which fails .positive() - so a .env carrying an empty SMTP_PORT line
+  // would stop the server booting over a variable it is not even using.
+  SMTP_PORT: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.coerce.number().int().positive().max(65535).default(587),
+  ),
+  SMTP_USER: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+  SMTP_PASSWORD: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().optional(),
+  ),
+
   // Links in outbound messages point back at the customer site, not the API.
   PUBLIC_SITE_URL: z.string().url().default('http://localhost:5173'),
 

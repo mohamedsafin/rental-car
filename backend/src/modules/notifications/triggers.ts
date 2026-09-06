@@ -48,6 +48,7 @@ async function bookingData(bookingId: string) {
 
   return {
     recipientId: booking.customerId,
+    paymentMethod: booking.paymentMethod,
     data: {
       customerName: booking.customer.fullName,
       bookingNumber: booking.bookingNumber,
@@ -76,22 +77,45 @@ export const notify = {
       data: {
         ...context.data,
         nextStep: awaitingDocuments
-          ? 'We need to verify your documents before you can pay.'
+          ? 'We need to verify your documents before your booking can be confirmed.'
           : 'Your booking is held while you complete payment.',
       },
       related: context.related,
     });
   },
 
-  /** Payment succeeded and the booking is confirmed (BRD 42). */
+  /**
+   * The booking is confirmed and the vehicle is reserved (BRD 42).
+   *
+   * Reached three ways - an online payment clearing, staff confirming a
+   * verified cash booking, and a cash booking that was confirmed the moment
+   * it was made - so the wording cannot assume money has arrived. Saying
+   * "your payment has gone through" to someone who is paying at the counter
+   * is not a cosmetic error: it tells them there is nothing left to pay, and
+   * they turn up without the cash.
+   *
+   * Both lines are resolved HERE, not in the template, because `fill` runs a
+   * single pass - a {{total}} sitting inside a substituted value would reach
+   * the customer as the literal text `{{total}}`.
+   */
   async bookingConfirmed(bookingId: string) {
     const context = await bookingData(bookingId);
     if (!context) return;
 
+    const payingCash = context.paymentMethod === 'CASH_ON_PICKUP';
+
     await notificationsService.send({
       templateKey: TemplateKey.BOOKING_CONFIRMED,
       recipientId: context.recipientId,
-      data: context.data,
+      data: {
+        ...context.data,
+        confirmationLine: payingCash
+          ? 'Your booking is confirmed and the vehicle is reserved for you.'
+          : 'Your payment has gone through and the vehicle is reserved for you.',
+        paymentNote: payingCash
+          ? `You chose to pay when you collect the vehicle. Please bring ${context.data.total} - we cannot hand over the keys until it is paid.`
+          : 'Paid in full. There is nothing further to pay before you collect it.',
+      },
       related: context.related,
     });
   },
