@@ -144,7 +144,7 @@ Local stack only — not a deployment. TLS, migrations-on-release and shared
 object storage are noted in `docker-compose.yml` rather than guessed at.
 
 ```bash
-cp .env.example .env      # set POSTGRES_PASSWORD, JWT_SECRET, JWT_REFRESH_SECRET
+cp .env.example .env      # set POSTGRES_PASSWORD, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET
 docker compose up --build
 docker compose run --rm api npm run prisma:deploy --workspace backend
 ```

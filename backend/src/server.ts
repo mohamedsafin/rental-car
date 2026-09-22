@@ -12,6 +12,7 @@ import type { Server } from 'node:http';
 import { createApp } from './app';
 import { env } from './config/env';
 import { logger } from './config/logger';
+import { startScheduler, stopScheduler } from './config/scheduler';
 import { checkDatabaseConnection, disconnectPrisma } from './config/prisma';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -32,10 +33,16 @@ async function bootstrap(): Promise<void> {
       environment: env.NODE_ENV,
       healthCheck: `http://localhost:${env.PORT}${env.API_PREFIX}/health`,
     });
+
+    // Only once the port is actually open. Starting the jobs before we know
+    // we can serve would have a process that failed to bind still sending
+    // customers their pickup reminders.
+    startScheduler();
   });
 
   const shutdown = (signal: string) => {
     logger.info(`${signal} received, shutting down gracefully`);
+    stopScheduler();
 
     const forceExit = setTimeout(() => {
       logger.error('Graceful shutdown timed out, forcing exit');
@@ -43,10 +50,18 @@ async function bootstrap(): Promise<void> {
     }, SHUTDOWN_TIMEOUT_MS);
     forceExit.unref();
 
-    server.close(async () => {
-      await disconnectPrisma();
-      logger.info('Shutdown complete');
-      process.exit(0);
+    /*
+     * `void` on an async callback, not an async callback passed as a void one.
+     * `server.close` ignores a returned promise, so the rejection of anything
+     * inside would be unhandled - and an unhandled rejection during shutdown
+     * takes the process down before the database connection is closed.
+     */
+    server.close(() => {
+      void (async () => {
+        await disconnectPrisma();
+        logger.info('Shutdown complete');
+        process.exit(0);
+      })();
     });
   };
 

@@ -23,7 +23,10 @@ import request from 'supertest';
 import { createApp } from '../src/app';
 import { prisma, disconnectPrisma } from '../src/config/prisma';
 import { API, cleanupUsers, createUser, loginAndGetToken } from './helpers';
-import { SmtpNotificationProvider } from '../src/services/notification/smtpProvider';
+import {
+  SmtpNotificationProvider,
+  type SmtpSettings,
+} from '../src/services/notification/smtpProvider';
 
 const app = createApp();
 const createdEmails: string[] = [];
@@ -207,11 +210,49 @@ describe('booking confirmation email', () => {
 });
 
 describe('the smtp driver', () => {
+  /*
+   * The settings are handed in rather than read from the environment.
+   *
+   * This test used to construct the driver bare and rely on the machine
+   * running it having no SMTP configuration - so it passed on a clean checkout
+   * and failed for anyone whose own `.env` pointed at a real mailbox. That is
+   * the environment being tested, not the code. Supplying the settings makes
+   * the result the same everywhere.
+   */
+  const nothingConfigured = { SMTP_PORT: 587 } as SmtpSettings;
+
   it('refuses to be constructed without credentials, naming every missing one', () => {
-    // The test environment has no SMTP settings, which is the point: a server
-    // that boots and then fails on every email is worse than one that does
-    // not boot.
-    expect(() => new SmtpNotificationProvider()).toThrowError(/SMTP_HOST/);
-    expect(() => new SmtpNotificationProvider()).toThrowError(/SMTP_PASSWORD/);
+    // A server that boots and then fails on every email is worse than one
+    // that does not boot.
+    expect(() => new SmtpNotificationProvider(nothingConfigured)).toThrowError(/SMTP_HOST/);
+    expect(() => new SmtpNotificationProvider(nothingConfigured)).toThrowError(/SMTP_USER/);
+    expect(() => new SmtpNotificationProvider(nothingConfigured)).toThrowError(/SMTP_PASSWORD/);
+    expect(() => new SmtpNotificationProvider(nothingConfigured)).toThrowError(
+      /NOTIFICATION_FROM_EMAIL/,
+    );
+  });
+
+  it('names ONLY what is missing, so a half-filled .env is not a guessing game', () => {
+    const hostOnly = {
+      SMTP_PORT: 587,
+      SMTP_HOST: 'smtp.example.com',
+      SMTP_USER: 'mailer@example.com',
+    } as SmtpSettings;
+
+    expect(() => new SmtpNotificationProvider(hostOnly)).toThrowError(/SMTP_PASSWORD/);
+    expect(() => new SmtpNotificationProvider(hostOnly)).not.toThrowError(/SMTP_HOST/);
+  });
+
+  it('constructs once every setting is present', () => {
+    expect(
+      () =>
+        new SmtpNotificationProvider({
+          SMTP_PORT: 587,
+          SMTP_HOST: 'smtp.example.com',
+          SMTP_USER: 'mailer@example.com',
+          SMTP_PASSWORD: 'not-a-real-password',
+          NOTIFICATION_FROM_EMAIL: 'bookings@example.com',
+        }),
+    ).not.toThrow();
   });
 });

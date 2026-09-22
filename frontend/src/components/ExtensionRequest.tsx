@@ -44,75 +44,71 @@ export default function ExtensionRequest({ booking }: { booking: Booking }) {
   }
 
   return (
-    <section className="rounded-lg border border-ink-200 bg-white p-5">
-      <h2 className="font-semibold text-ink-900">Need the car for longer?</h2>
+    <section aria-labelledby="extension-title" className="surface p-5 sm:p-6">
+      <h2 id="extension-title" className="text-[15px] font-semibold text-ink-950">
+        Need the car for longer?
+      </h2>
 
       {pending ? (
-        <div className="mt-3 rounded-md border border-purple-200 bg-purple-50 p-3 text-sm text-purple-900">
+        <div className="mt-3 rounded-xl border border-purple-200 bg-purple-50 p-3.5 text-sm text-purple-900">
           <p className="font-medium">Request awaiting review</p>
           <p className="mt-1">
-            Until {new Date(pending.requestedReturnAt).toLocaleString()} -{' '}
-            {pending.additionalDays} extra day(s), {pending.currency} {pending.additionalAmount}
+            Until {new Date(pending.requestedReturnAt).toLocaleString()} - {pending.additionalDays} extra
+            day(s), {pending.currency} {pending.additionalAmount}
           </p>
         </div>
       ) : (
         <>
           {lastDecided?.status === 'REJECTED' && lastDecided.rejectionReason && (
-            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-900">
               <span className="font-medium">Your last request was declined:</span>{' '}
               {lastDecided.rejectionReason}
             </p>
           )}
 
           {open ? (
-            <form onSubmit={submit} className="mt-3 space-y-3">
+            <form onSubmit={submit} className="mt-4 space-y-4">
               {error && (
-                <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm text-red-700">
                   {error}
                 </p>
               )}
 
-              <p className="text-sm text-ink-600">
-                Currently due back {currentReturn.toLocaleString()}.
-              </p>
+              <p className="text-sm text-ink-600">Currently due back {currentReturn.toLocaleString()}.</p>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className="text-sm font-medium text-ink-700">New return date</span>
+                  <span className="field-label">New return date</span>
                   <input
                     type="date"
                     required
                     min={minDate}
                     value={newDate}
                     onChange={(e) => setNewDate(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-ink-300 px-3 py-2 text-sm"
+                    className="field-control"
                   />
                 </label>
                 <label className="block">
-                  <span className="text-sm font-medium text-ink-700">New return time</span>
+                  <span className="field-label">New return time</span>
                   <input
                     type="time"
                     required
                     value={newTime}
                     onChange={(e) => setNewTime(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-ink-300 px-3 py-2 text-sm"
+                    className="field-control"
                   />
                 </label>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="submit"
                   disabled={requestExtension.isPending || !newDate}
-                  className="rounded-md bg-ink-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  className="btn btn-primary"
                 >
-                  {requestExtension.isPending ? 'Checking availability...' : 'Request extension'}
+                  {requestExtension.isPending ? 'Checking availability…' : 'Request extension'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="text-sm text-ink-600 hover:underline"
-                >
+                <button type="button" onClick={() => setOpen(false)} className="btn btn-ghost">
                   Cancel
                 </button>
               </div>
@@ -120,14 +116,9 @@ export default function ExtensionRequest({ booking }: { booking: Booking }) {
           ) : (
             <>
               <p className="mt-1 text-sm text-ink-600">
-                We will check the vehicle is free and tell you the extra cost before anything is
-                charged.
+                We will check the vehicle is free and tell you the extra cost before anything is charged.
               </p>
-              <button
-                type="button"
-                onClick={() => setOpen(true)}
-                className="mt-3 rounded-md border border-ink-300 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50"
-              >
+              <button type="button" onClick={() => setOpen(true)} className="btn btn-outline mt-4">
                 Request an extension
               </button>
             </>

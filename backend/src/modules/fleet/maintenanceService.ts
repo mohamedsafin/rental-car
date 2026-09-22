@@ -93,6 +93,40 @@ export const maintenanceService = {
       },
     });
 
+    /*
+     * The cost goes on the vehicle's ledger as well as on this record.
+     *
+     * Not duplication - two different questions. The maintenance record
+     * answers "what was done to this car and when"; the expense ledger answers
+     * "what has this car cost me this year", which is what the profitability
+     * report reads and what nobody could answer before. `sourceType` and
+     * `sourceId` are unique together, so correcting the figure later updates
+     * this same row instead of adding a second one.
+     */
+    if (record.cost && !record.cost.isZero()) {
+      await prisma.vehicleExpense.upsert({
+        where: { sourceType_sourceId: { sourceType: 'MaintenanceRecord', sourceId: record.id } },
+        create: {
+          vehicleId: record.vehicleId,
+          type: record.type === 'TYRE_CHANGE' ? 'TYRES' : 'MAINTENANCE',
+          amount: record.cost,
+          currency: record.currency,
+          // The date the work happened, not the date somebody typed it in.
+          incurredAt: record.startsAt,
+          description: record.description,
+          supplier: record.provider,
+          sourceType: 'MaintenanceRecord',
+          sourceId: record.id,
+          recordedById: actor.id,
+        },
+        update: {
+          amount: record.cost,
+          supplier: record.provider,
+          description: record.description,
+        },
+      });
+    }
+
     await auditService.record({
       action: 'maintenance.scheduled',
       actorId: actor.id,

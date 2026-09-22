@@ -3,7 +3,7 @@
  * ---------------------------------------------------------------------------
  * Date pickers, optional extras, and the live price for one vehicle.
  *
- * Every keystroke re-asks the BACKEND for the price. That looks chatty, and it
+ * Every change re-asks the BACKEND for the price. That looks chatty, and it
  * is deliberate: the alternative is duplicating the tier-selection, discount
  * and VAT logic in the browser, where it would drift from the engine and show
  * customers a number they are not actually charged.
@@ -14,19 +14,43 @@
  *
  * The Book button sends only the CHOICE - vehicle, dates, services. The total
  * shown here is for the customer's benefit; the backend recomputes it.
+ *
+ * One panel with hairline-separated sections, rather than the five stacked
+ * boxes it used to be: the quote reads as a single decision, top to bottom.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { ArrowRight, CircleAlert, CircleCheck, Minus, Plus } from 'lucide-react';
 import PriceBreakdown from './PriceBreakdown';
+import DateOfBirthPrompt from './DateOfBirthPrompt';
 import { toIso, useAdditionalServices, usePaymentOptions, useQuote } from '../features/booking/useBooking';
 import { useCreateBooking } from '../features/bookings/useBookings';
 import { useAuth } from '../hooks/useAuth';
+import { displayMoney } from '../utils/displayMoney';
 import type { Vehicle } from '../types/vehicle';
 
 function dateOffset(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+/**
+ * The same day of the month, N months on - clamped to the end of a short one.
+ *
+ * 31 January + 1 month is 28 February, not 3 March. This mirrors the rule the
+ * backend bills by, so the dates the customer picks here and the months they
+ * are charged for cannot disagree.
+ */
+function monthOffset(months: number, from: string): string {
+  const start = new Date(`${from}T00:00:00`);
+  const day = start.getDate();
+  const shifted = new Date(start);
+  shifted.setDate(1);
+  shifted.setMonth(shifted.getMonth() + months);
+  const lastDay = new Date(shifted.getFullYear(), shifted.getMonth() + 1, 0).getDate();
+  shifted.setDate(Math.min(day, lastDay));
+  return shifted.toISOString().slice(0, 10);
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -43,11 +67,34 @@ export interface QuotePanelProps {
   };
 }
 
+/** One titled block of the panel, separated from the one above by a hairline. */
+function Section({ title, labelFor, children }: { title: string; labelFor?: string; children: ReactNode }) {
+  const titleClass = 'block text-[13px] font-semibold uppercase tracking-[0.12em] text-ink-500';
+  return (
+    <div className="mt-6 border-t border-ink-100 pt-6">
+      {labelFor ? (
+        <label htmlFor={labelFor} className={titleClass}>
+          {title}
+        </label>
+      ) : (
+        <h3 className={titleClass}>{title}</h3>
+      )}
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
+
 export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const createBooking = useCreateBooking();
   const [bookingError, setBookingError] = useState<string | null>(null);
+  /*
+   * The one refusal that is not really an error: the customer has done nothing
+   * wrong, we simply never asked for their date of birth. Held separately so
+   * it can be answered here rather than shown as a red wall.
+   */
+  const [needsDateOfBirth, setNeedsDateOfBirth] = useState<number | null>(null);
 
   const [dates, setDates] = useState({
     pickupDate: initial?.pickupDate || dateOffset(1),
@@ -55,6 +102,18 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
     returnDate: initial?.returnDate || dateOffset(4),
     returnTime: initial?.returnTime || '10:00',
   });
+
+  /*
+   * Daily or monthly.
+   *
+   * Not a cosmetic toggle: it decides `billingCycle`, and therefore whether
+   * the customer is asked for the whole term before collection or one month
+   * at a time. Monthly also takes over the return date, because "3 months"
+   * and "a return date 91 days away" are the same thing said two ways, and
+   * letting the customer set both invites them to disagree.
+   */
+  const [mode, setMode] = useState<'DAILY' | 'MONTHLY'>('DAILY');
+  const [months, setMonths] = useState(1);
 
   const [selected, setSelected] = useState<Record<string, number>>({});
 
@@ -92,7 +151,11 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
   );
 
   const pickupAt = toIso(dates.pickupDate, dates.pickupTime);
-  const returnAt = toIso(dates.returnDate, dates.returnTime);
+  // On a monthly rental the return date is derived, so the term and the dates
+  // are always the same statement.
+  const effectiveReturnDate =
+    mode === 'MONTHLY' ? monthOffset(months, dates.pickupDate) : dates.returnDate;
+  const returnAt = toIso(effectiveReturnDate, dates.returnTime);
   const datesValid = new Date(returnAt) > new Date(pickupAt);
 
   const { data, isPending, isError, error } = useQuote({
@@ -119,86 +182,228 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
     setAppliedCoupon('');
   }, [isError, error, appliedCoupon, rejectedCoupon]);
 
-  return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-ink-200 bg-white p-5">
-        <h3 className="font-semibold text-ink-900">Your rental dates</h3>
+  const availableMethods = paymentOptions?.options.filter((option) => option.available) ?? [];
 
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-ink-600">Pickup date</span>
+  /*
+   * Placing the booking, and the one refusal worth handling specially.
+   *
+   * The server asks for a date of birth when a minimum driving age is set and
+   * the customer has none on file. That is not a mistake they made - nothing
+   * ever asked them - so it becomes an inline field here instead of a red
+   * error pointing at a profile page.
+   */
+  function book() {
+    createBooking.mutate(
+      {
+        vehicleId: vehicle.id,
+        pickupAt,
+        returnAt,
+        services,
+        pickupLocationId: initial?.pickupLocationId,
+        // Re-checked server-side here. A code that expired between the quote
+        // and this click is refused at this point.
+        couponCode: appliedCoupon || undefined,
+        paymentMethod,
+        billingCycle: mode === 'MONTHLY' ? 'MONTHLY' : 'UPFRONT',
+      },
+      {
+        onSuccess: (result) => navigate(`/account/bookings/${result.booking.id}`),
+        onError: (error) => {
+          const message = error.message;
+
+          // Matched on the server's own words, and the age is read out of
+          // them, so the two can never quote different numbers.
+          if (/date of birth/i.test(message)) {
+            const age = /at least (\d+)/.exec(message);
+            setNeedsDateOfBirth(age ? Number(age[1]) : null);
+            return;
+          }
+
+          setBookingError(message);
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="rounded-[20px] border border-ink-100 bg-white p-5 shadow-card sm:p-7">
+      {/* The listed rate, for orientation. The quote below is the real price. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="tabular text-ink-950">
+          <span className="text-sm font-medium text-ink-500">{vehicle.pricing.currency}</span>{' '}
+          <span className="text-[2rem] font-semibold leading-none tracking-tight">
+            {displayMoney(vehicle.pricing.daily)}
+          </span>{' '}
+          <span className="text-sm font-medium text-ink-500">/ day</span>
+        </p>
+        <p className="tabular text-[13px] text-ink-500">
+          + {vehicle.pricing.currency} {displayMoney(vehicle.pricing.securityDeposit)} refundable deposit
+        </p>
+      </div>
+
+      {/*
+        Daily or monthly, before anything else.
+        --------------------------------------------------------------------
+        It comes first because it changes what the rest of the panel means:
+        the price shown, the dates asked for, and - most of all - what the
+        customer is asked to pay at checkout. A monthly customer pays one
+        month; a daily one pays the lot.
+
+        The monthly rate is only offered where the vehicle HAS one. Showing
+        the choice on a car with no monthly price would quote the daily rate
+        thirty times over and call it a monthly deal.
+      */}
+      {vehicle.pricing.monthly && Number(vehicle.pricing.monthly) > 0 && (
+        <Section title="How long do you need it?">
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Rental type">
+            {(
+              [
+                ['DAILY', 'By the day', `${vehicle.pricing.currency} ${displayMoney(vehicle.pricing.daily)} / day`],
+                ['MONTHLY', 'By the month', `${vehicle.pricing.currency} ${displayMoney(vehicle.pricing.monthly)} / month`],
+              ] as const
+            ).map(([value, label, rate]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={mode === value}
+                onClick={() => setMode(value)}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  mode === value
+                    ? 'border-accent-500 bg-accent-50'
+                    : 'border-ink-200 hover:border-ink-300'
+                }`}
+              >
+                <span className="block text-sm font-semibold text-ink-950">{label}</span>
+                <span className="tabular mt-0.5 block text-xs text-ink-500">{rate}</span>
+              </button>
+            ))}
+          </div>
+
+          {mode === 'MONTHLY' && (
+            <div className="mt-3">
+              <label className="block">
+                <span className="field-label">How many months?</span>
+                <select
+                  value={months}
+                  onChange={(event) => setMonths(Number(event.target.value))}
+                  className="field-control px-3 text-sm"
+                >
+                  {[1, 2, 3, 4, 5, 6, 9, 12].map((count) => (
+                    <option key={count} value={count}>
+                      {count} {count === 1 ? 'month' : 'months'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="mt-2 text-xs leading-relaxed text-ink-500">
+                {/*
+                  The reassurance that matters on a long term: they are not
+                  being asked for the whole thing today.
+                */}
+                Pay one month at a time. The first month and the deposit are due
+                now; each later month is due on the day it starts.
+              </p>
+            </div>
+          )}
+        </Section>
+      )}
+
+      <Section title="Your rental dates">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block min-w-0">
+            <span className="field-label">Pick-up date</span>
             <input
               type="date"
               min={TODAY}
               value={dates.pickupDate}
               onChange={(e) => setDates({ ...dates, pickupDate: e.target.value })}
-              className="w-full rounded-md border border-ink-300 px-2 py-1.5 text-sm"
+              className="field-control px-3 text-sm"
             />
           </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-ink-600">Pickup time</span>
+          <label className="block min-w-0">
+            <span className="field-label">Pick-up time</span>
             <input
               type="time"
               value={dates.pickupTime}
               onChange={(e) => setDates({ ...dates, pickupTime: e.target.value })}
-              className="w-full rounded-md border border-ink-300 px-2 py-1.5 text-sm"
+              className="field-control px-3 text-sm"
             />
           </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-ink-600">Return date</span>
+          <label className="block min-w-0">
+            <span className="field-label">Return date</span>
             <input
               type="date"
               min={dates.pickupDate}
-              value={dates.returnDate}
+              value={effectiveReturnDate}
+              // Derived from the term on a monthly rental. Editable here AND
+              // set by the month count would be two controls fighting over one
+              // value, and the customer would win an argument with themselves.
+              readOnly={mode === 'MONTHLY'}
               onChange={(e) => setDates({ ...dates, returnDate: e.target.value })}
-              className="w-full rounded-md border border-ink-300 px-2 py-1.5 text-sm"
+              className={`field-control px-3 text-sm ${mode === 'MONTHLY' ? 'bg-ink-50 text-ink-500' : ''}`}
             />
           </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-ink-600">Return time</span>
+          <label className="block min-w-0">
+            <span className="field-label">Return time</span>
             <input
               type="time"
               value={dates.returnTime}
               onChange={(e) => setDates({ ...dates, returnTime: e.target.value })}
-              className="w-full rounded-md border border-ink-300 px-2 py-1.5 text-sm"
+              className="field-control px-3 text-sm"
             />
           </label>
         </div>
 
         {!datesValid && (
-          <p role="alert" className="mt-3 text-sm text-red-600">
+          <p role="alert" className="mt-3 text-sm font-medium text-red-700">
             Return must be after pickup.
           </p>
         )}
-      </div>
+      </Section>
 
       {serviceData && serviceData.services.length > 0 && (
-        <div className="rounded-lg border border-ink-200 bg-white p-5">
-          <h3 className="font-semibold text-ink-900">Optional extras</h3>
-          <ul className="mt-3 space-y-2">
-            {serviceData.services.map((service) => (
-              <li key={service.id} className="flex items-center justify-between gap-3 text-sm">
-                <div className="min-w-0">
-                  <p className="font-medium text-ink-800">{service.name}</p>
-                  <p className="text-xs text-ink-500">
-                    {vehicle.pricing.currency} {service.price}
-                    {service.chargeType === 'PER_DAY' ? ' per day' : ' one-off'}
-                  </p>
-                </div>
-                <input
-                  type="number"
-                  min={0}
-                  max={service.maxQuantity}
-                  value={selected[service.id] ?? 0}
-                  onChange={(e) =>
-                    setSelected({ ...selected, [service.id]: Number(e.target.value) })
-                  }
-                  className="w-16 rounded-md border border-ink-300 px-2 py-1 text-sm"
-                />
-              </li>
-            ))}
+        <Section title="Optional extras">
+          <ul className="space-y-3">
+            {serviceData.services.map((service) => {
+              const quantity = selected[service.id] ?? 0;
+              const max = service.maxQuantity ?? 99;
+              return (
+                <li key={service.id} className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink-950">{service.name}</p>
+                    <p className="tabular text-xs text-ink-500">
+                      {vehicle.pricing.currency} {service.price}
+                      {service.chargeType === 'PER_DAY' ? ' per day' : ' one-off'}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center rounded-full border border-ink-200">
+                    <button
+                      type="button"
+                      aria-label={`Remove one ${service.name}`}
+                      disabled={quantity <= 0}
+                      onClick={() => setSelected({ ...selected, [service.id]: Math.max(0, quantity - 1) })}
+                      className="flex h-9 w-9 items-center justify-center rounded-full text-ink-700 transition-colors hover:bg-ink-50 disabled:opacity-30"
+                    >
+                      <Minus aria-hidden className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="tabular w-6 text-center text-sm font-semibold text-ink-950" aria-live="polite">
+                      {quantity}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Add one ${service.name}`}
+                      disabled={quantity >= max}
+                      onClick={() => setSelected({ ...selected, [service.id]: Math.min(max, quantity + 1) })}
+                      className="flex h-9 w-9 items-center justify-center rounded-full text-ink-700 transition-colors hover:bg-ink-50 disabled:opacity-30"
+                    >
+                      <Plus aria-hidden className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
-        </div>
+        </Section>
       )}
 
       {/*
@@ -206,18 +411,13 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
         anywhere in this component for a discount amount, because the amount is
         the server's answer, not the customer's input.
       */}
-      <div className="rounded-lg border border-ink-200 bg-white p-5">
-        <label htmlFor="couponCode" className="block text-sm font-semibold text-ink-900">
-          Promo code
-        </label>
-
+      <Section title="Promo code" labelFor="couponCode">
         {appliedCoupon && data?.quote.coupon ? (
-          <div className="mt-3 flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
             <div className="text-sm text-emerald-900">
               <span className="font-mono font-semibold">{data.quote.coupon.code}</span> applied
               <span className="block text-xs">
-                {data.quote.coupon.label} - saves {data.quote.currency}{' '}
-                {data.quote.coupon.discountAmount}
+                {data.quote.coupon.label} - saves {data.quote.currency} {data.quote.coupon.discountAmount}
               </span>
             </div>
             <button
@@ -227,13 +427,13 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
                 setCouponDraft('');
                 setRejectedCoupon(null);
               }}
-              className="text-xs font-medium text-emerald-900 underline"
+              className="text-xs font-semibold text-emerald-900 underline underline-offset-2"
             >
               Remove
             </button>
           </div>
         ) : (
-          <div className="mt-3 flex gap-2">
+          <div className="flex gap-2">
             <input
               id="couponCode"
               value={couponDraft}
@@ -250,13 +450,13 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
                 }
               }}
               placeholder="Enter a code"
-              className="w-full rounded-md border border-ink-300 px-3 py-2 font-mono text-sm uppercase"
+              className="field-control font-mono text-sm uppercase"
             />
             <button
               type="button"
               disabled={!couponDraft.trim()}
               onClick={() => setAppliedCoupon(couponDraft.trim())}
-              className="shrink-0 rounded-md border border-ink-300 px-4 py-2 text-sm font-medium text-ink-700 hover:border-ink-400 disabled:opacity-40"
+              className="btn btn-outline shrink-0"
             >
               Apply
             </button>
@@ -265,80 +465,85 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
 
         {/*
           A refused code returns 400 with a reason - "this code needs a 7-day
-          rental" - which is far more use than "invalid code". Shown here
-          rather than as a page-level error, next to the field that caused it.
+          rental" - which is far more use than "invalid code". Shown here,
+          next to the field that caused it.
         */}
         {rejectedCoupon && (
           <p className="mt-2 text-sm text-red-700" role="alert">
             {rejectedCoupon.reason}
           </p>
         )}
-      </div>
+      </Section>
 
       {/* A genuine quote failure - bad dates, vehicle gone. A refused promo
           code is handled above and never reaches here. */}
       {isError && !appliedCoupon && !rejectedCoupon && (
-        <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error.message}
         </div>
       )}
 
       {isPending && datesValid && (
-        <div className="h-48 animate-pulse rounded-lg bg-ink-200" />
+        <div className="mt-6 h-48 animate-pulse rounded-2xl bg-ink-100" aria-hidden />
       )}
 
       {data && (
-        <>
+        <div className="mt-6 space-y-4 border-t border-ink-100 pt-6">
           {data.availability.available ? (
-            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-              Available for these dates.
-            </div>
+            <p className="flex items-center gap-2 text-sm font-medium text-emerald-800">
+              <CircleCheck aria-hidden className="h-4 w-4 text-emerald-600" />
+              Available for these dates
+            </p>
           ) : (
-            <div role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p role="alert" className="flex items-start gap-2 text-sm font-medium text-amber-900">
+              <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               {data.availability.reason ?? 'Not available for these dates.'}
-            </div>
+            </p>
           )}
 
-          <PriceBreakdown quote={data.quote} />
+          <PriceBreakdown
+              quote={data.quote}
+              monthly={mode === 'MONTHLY' ? { months } : null}
+            />
 
           {/*
             How to pay. Only rendered when there is a real choice - a single
             radio button is a decision the customer does not have.
           */}
-          {(paymentOptions?.options.filter((option) => option.available).length ?? 0) > 1 && (
-            <fieldset className="rounded-card border border-ink-200 bg-white p-5">
-              <legend className="px-1 text-sm font-semibold text-ink-900">How would you like to pay?</legend>
+          {availableMethods.length > 1 && (
+            <fieldset>
+              <legend className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink-500">
+                How would you like to pay?
+              </legend>
 
-              <div className="mt-2 space-y-2">
-                {paymentOptions?.options
-                  .filter((option) => option.available)
-                  .map((option) => (
-                    <label
-                      key={option.value}
-                      className={
-                        paymentMethod === option.value
-                          ? 'flex cursor-pointer gap-3 rounded-lg border border-ink-900 bg-ink-50/60 p-3'
-                          : 'flex cursor-pointer gap-3 rounded-lg border border-ink-200 p-3 hover:border-ink-300'
-                      }
-                    >
-                      <input
-                        type="radio"
-                        name="paymentMethod"
-                        value={option.value}
-                        checked={paymentMethod === option.value}
-                        onChange={() => setPaymentMethod(option.value)}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <span className="block text-sm font-medium text-ink-900">{option.label}</span>
-                        <span className="block text-xs text-ink-500">{option.detail}</span>
-                      </span>
-                    </label>
-                  ))}
+              <div className="mt-3 space-y-2">
+                {availableMethods.map((option) => (
+                  <label
+                    key={option.value}
+                    className={`flex cursor-pointer gap-3 rounded-xl border p-3.5 transition-colors ${
+                      paymentMethod === option.value
+                        ? 'border-ink-950 bg-ink-50/60'
+                        : 'border-ink-200 hover:border-ink-400'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value={option.value}
+                      checked={paymentMethod === option.value}
+                      onChange={() => setPaymentMethod(option.value)}
+                      className="mt-0.5 accent-ink-950"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-ink-950">{option.label}</span>
+                      <span className="block text-xs text-ink-500">{option.detail}</span>
+                    </span>
+                  </label>
+                ))}
               </div>
 
               {paymentMethod === 'CASH_ON_PICKUP' && (
-                <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <p className="mt-3 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
                   The vehicle is reserved for you now. Bring {data.quote.currency}{' '}
                   {data.quote.totals.totalPayable} in cash - the rental plus the refundable deposit -
                   when you collect it. The keys are handed over once payment is taken.
@@ -348,9 +553,24 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
           )}
 
           {bookingError && (
-            <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm text-red-700">
               {bookingError}
             </div>
+          )}
+
+          {/*
+            Asked here, with the dates and the price still on screen. Saving it
+            retries the booking straight away, so answering costs one field and
+            not a trip to another page.
+          */}
+          {needsDateOfBirth !== null && (
+            <DateOfBirthPrompt
+              minimumAge={needsDateOfBirth}
+              onSaved={() => {
+                setNeedsDateOfBirth(null);
+                book();
+              }}
+            />
           )}
 
           {isAuthenticated ? (
@@ -359,52 +579,44 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
               disabled={!data.availability.available || createBooking.isPending}
               onClick={() => {
                 setBookingError(null);
-                createBooking.mutate(
-                  {
-                    vehicleId: vehicle.id,
-                    pickupAt,
-                    returnAt,
-                    services,
-                    pickupLocationId: initial?.pickupLocationId,
-                    // Re-checked server-side here. A code that expired between
-                    // the quote and this click is refused at this point.
-                    couponCode: appliedCoupon || undefined,
-                    paymentMethod,
-                  },
-                  {
-                    onSuccess: (result) => navigate(`/account/bookings/${result.booking.id}`),
-                    onError: (error) => setBookingError(error.message),
-                  },
-                );
+                setNeedsDateOfBirth(null);
+                book();
               }}
-              className="w-full rounded-md bg-ink-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-300 disabled:text-ink-600"
+              className="btn btn-accent btn-lg w-full"
             >
               {createBooking.isPending
-                ? 'Creating booking...'
+                ? 'Creating booking…'
                 : data.availability.available
                   ? 'Book this vehicle'
                   : 'Not available for these dates'}
+              {data.availability.available && !createBooking.isPending && (
+                <ArrowRight aria-hidden className="btn-arrow h-4 w-4" />
+              )}
             </button>
           ) : (
+            // Sends them back to THIS car after signing in, via the same
+            // `state.from` the route guard uses.
             <Link
               to="/login"
-              className="block w-full rounded-md bg-ink-900 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-ink-800"
+              state={{ from: { pathname: `/cars/${vehicle.id}` } }}
+              className="btn btn-accent btn-lg w-full"
             >
               Sign in to book
+              <ArrowRight aria-hidden className="btn-arrow h-4 w-4" />
             </Link>
           )}
 
           {/*
             The reason sits BESIDE the button, not only in the notice at the
-            top of the panel. On a long page the customer scrolls straight past
-            that notice, reaches a greyed-out button with nothing next to it,
-            and concludes the site is broken - which is what happened.
+            top. On a long page the customer scrolls straight past that notice,
+            reaches a greyed-out button with nothing next to it, and concludes
+            the site is broken - which is what happened.
           */}
           {!data.availability.available && (
-            <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              {data.availability.reason ?? 'This vehicle is not free for the dates you picked.'}{' '}
-              Change the dates above, or{' '}
-              <Link to="/search" className="font-medium underline underline-offset-2">
+            <p className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-900">
+              {data.availability.reason ?? 'This vehicle is not free for the dates you picked.'} Change
+              the dates above, or{' '}
+              <Link to="/search" className="font-semibold underline underline-offset-2">
                 see what is free
               </Link>
               .
@@ -416,7 +628,7 @@ export default function QuotePanel({ vehicle, initial }: QuotePanelProps) {
               ? 'You will pay in cash when you collect the vehicle.'
               : 'You will be taken to secure payment at the next step.'}
           </p>
-        </>
+        </div>
       )}
     </div>
   );

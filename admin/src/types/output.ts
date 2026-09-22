@@ -77,7 +77,59 @@ export interface DashboardReport {
   bookings: BookingsReport;
   outstanding: OutstandingReport;
   activeRentals: number;
+  /** Published cars only - what a customer could actually book. */
   fleetSize: number;
+  /**
+   * Every car on the books, counted by the database.
+   *
+   * The dashboard used to tally a page of 60 vehicles in the browser, which
+   * was right until the 61st car was added and then silently wrong.
+   */
+  fleet: {
+    total: number;
+    available: number;
+    rented: number;
+    reserved: number;
+    underInspection: number;
+    underMaintenance: number;
+    unavailable: number;
+    /** No registration document on file at all - the car cannot legally go out. */
+    noRegistration: number;
+    /** No policy currently in force. */
+    noInsurance: number;
+    expiredRegistration: number;
+    expiredInsurance: number;
+    /**
+     * Cars carrying damage nobody has closed off.
+     *
+     * Counted from the damage record, not from vehicle status: a scratched car
+     * is usually back on the fleet showing AVAILABLE while an unresolved
+     * charge sits behind it, and that is exactly the one that gets lost.
+     */
+    damaged: number;
+  };
+  /** What is out, overdue, due back today and just returned. */
+  rentals: {
+    active: number;
+    overdue: number;
+    dueBackToday: number;
+    returnedToday: number;
+    awaitingPayment: number;
+    documentsToReview: number;
+  };
+  /**
+   * Charges raised and not yet recovered, split by kind.
+   *
+   * Salik and fines behave differently - a toll is a few dirhams taken off a
+   * deposit, a fine is a few hundred with a deadline and a driver to nominate -
+   * so one combined number would hide whichever is the actual problem.
+   */
+  charges: {
+    fines: { count: number; amount: string };
+    tolls: { count: number; amount: string };
+  };
+  /** Money taken today. A different question from the month-to-date figure. */
+  today: { revenue: string; payments: number };
 }
 
 export interface InvoiceLine {

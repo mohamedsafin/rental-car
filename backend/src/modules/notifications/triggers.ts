@@ -17,6 +17,7 @@ import { prisma } from '../../config/prisma';
 import { logger } from '../../config/logger';
 import { env } from '../../config/env';
 import { notificationsService } from './service';
+import { SettingKey, settingsService } from '../settings/service';
 
 /** Template keys, in one place so a typo cannot silently send nothing. */
 export const TemplateKey = {
@@ -25,11 +26,27 @@ export const TemplateKey = {
   BOOKING_CANCELLED: 'booking.cancelled',
   PAYMENT_RECEIVED: 'payment.received',
   PICKUP_REMINDER: 'booking.pickup_reminder',
+  EXPIRY_REMINDER: 'fleet.expiry_reminder',
+  INSTALMENT_DUE: 'instalment.due',
   RETURN_REMINDER: 'booking.return_reminder',
   DOCUMENT_REVIEWED: 'document.reviewed',
   INVOICE_ISSUED: 'invoice.issued',
   DEPOSIT_RELEASED: 'deposit.released',
+  DEPOSIT_DEDUCTED: 'deposit.deducted',
+  PASSWORD_RESET: 'auth.password_reset',
+  EMAIL_VERIFICATION: 'auth.email_verification',
 } as const;
+
+/** Database categories are not words to show a customer. */
+const DEDUCTION_LABELS: Record<string, string> = {
+  DAMAGE: 'Vehicle damage',
+  TRAFFIC_FINE: 'Traffic fine',
+  TOLL: 'Salik / toll charge',
+  FUEL: 'Fuel',
+  CLEANING: 'Cleaning',
+  LATE_RETURN: 'Late return',
+  OTHER: 'Other charge',
+};
 
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 16).replace('T', ' ');
@@ -159,6 +176,52 @@ export const notify = {
    * not actionable on its own - the customer wants to know whether they can
    * now book, or whether something else is still outstanding.
    */
+  /*
+   * ===================================================================
+   * THE TWO THAT ARE NOT FIRE-AND-FORGET
+   * ===================================================================
+   * Everything else in this file is sent with `void` because a booking is
+   * confirmed whether or not its email left the building. These two ARE the
+   * feature: a reset link that silently fails to send leaves a customer
+   * locked out staring at "check your inbox". So they are awaited, and a
+   * failure is allowed to surface.
+   */
+  async passwordReset(userId: string, resetUrl: string, expiresInMinutes: number) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true },
+    });
+
+    await notificationsService.send({
+      templateKey: TemplateKey.PASSWORD_RESET,
+      recipientId: userId,
+      data: {
+        customerName: user?.fullName ?? 'there',
+        resetUrl,
+        expiresInMinutes: String(expiresInMinutes),
+      },
+      related: { type: 'User', id: userId },
+    });
+  },
+
+  async emailVerification(userId: string, verifyUrl: string, expiresInHours: number) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true },
+    });
+
+    await notificationsService.send({
+      templateKey: TemplateKey.EMAIL_VERIFICATION,
+      recipientId: userId,
+      data: {
+        customerName: user?.fullName ?? 'there',
+        verifyUrl,
+        expiresInHours: String(expiresInHours),
+      },
+      related: { type: 'User', id: userId },
+    });
+  },
+
   async documentReviewed(
     customerUserId: string,
     documentType: string,
@@ -202,10 +265,218 @@ export const notify = {
         invoiceNumber: invoice.invoiceNumber,
         bookingNumber: invoice.booking.bookingNumber,
         total: `${invoice.currency} ${invoice.total.toFixed(2)}`,
-        invoiceUrl: `${env.PUBLIC_SITE_URL}/account/invoices/${invoice.id}`,
+        /*
+         * Points at the BOOKING, which is where the invoice can actually be
+         * read and downloaded. It used to point at `/account/invoices/:id`, a
+         * route that was never built - so every invoice email ever sent led
+         * the customer to a 404.
+         */
+        invoiceUrl: `${env.PUBLIC_SITE_URL}/account/bookings/${invoice.bookingId}`,
       },
       related: { type: 'Invoice', id: invoice.id },
     });
+  },
+
+  /**
+   * Monthly rental payments that have come due.
+   *
+   * Two jobs in one sweep, because they are the same question asked of the
+   * same rows: mark anything whose date has arrived as DUE, and tell the
+   * customer once. Idempotent by query - a row is only moved out of SCHEDULED
+   * once, and the message is only sent on that transition, so running this
+   * hourly does not send twelve reminders a day.
+   *
+   * It does NOT chase, suspend or repossess. A missed payment on a car
+   * somebody is driving is a conversation, not something a cron job should
+   * decide.
+   */
+  async runDueInstalments(now = new Date()) {
+    const due = await prisma.rentalInstalment.findMany({
+      where: { status: 'SCHEDULED', dueAt: { lte: now } },
+      include: {
+        booking: {
+          select: {
+            id: true,
+            bookingNumber: true,
+            customerId: true,
+            termMonths: true,
+            status: true,
+            customer: { select: { fullName: true } },
+          },
+        },
+      },
+    });
+
+    if (due.length === 0) return { marked: 0, notified: 0 };
+
+    const companyName = (await settingsService.getString(SettingKey.COMPANY_NAME)) ?? '';
+    let notified = 0;
+
+    for (const instalment of due) {
+      // A cancelled booking owes nothing for months it will never use.
+      if (instalment.booking.status === 'CANCELLED') {
+        await prisma.rentalInstalment.update({
+          where: { id: instalment.id },
+          data: { status: 'CANCELLED' },
+        });
+        continue;
+      }
+
+      await prisma.rentalInstalment.update({
+        where: { id: instalment.id },
+        data: { status: 'DUE' },
+      });
+
+      await notificationsService.send({
+        templateKey: TemplateKey.INSTALMENT_DUE,
+        recipientId: instalment.booking.customerId,
+        data: {
+          customerName: instalment.booking.customer.fullName,
+          bookingNumber: instalment.booking.bookingNumber,
+          sequence: String(instalment.sequence),
+          termMonths: String(instalment.booking.termMonths ?? instalment.sequence),
+          periodStart: formatDate(instalment.periodStart),
+          periodEnd: formatDate(instalment.periodEnd),
+          amount: `${instalment.currency} ${instalment.amount.toFixed(2)}`,
+          bookingUrl: `${env.PUBLIC_SITE_URL}/account/bookings/${instalment.booking.id}`,
+          companyName,
+        },
+        related: { type: 'RentalInstalment', id: instalment.id },
+      });
+      notified += 1;
+    }
+
+    logger.info('Instalment sweep finished', { marked: due.length, notified });
+    return { marked: due.length, notified };
+  },
+
+  /**
+   * Money has left a deposit. Tell the customer now, not at refund time.
+   *
+   * Both of these were missing entirely: the deposit service fired no
+   * notifications at all, and the `deposit.released` template existed in the
+   * database while nothing on earth sent it. A customer therefore heard
+   * nothing when money came out, and nothing when the rest went back.
+   */
+  async depositDeducted(
+    bookingId: string,
+    input: { amount: string; category: string; reason: string; balance: string; currency: string },
+  ) {
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { bookingNumber: true, customerId: true, customer: { select: { fullName: true } } },
+    });
+    if (!booking) return;
+
+    await notificationsService.send({
+      templateKey: TemplateKey.DEPOSIT_DEDUCTED,
+      recipientId: booking.customerId,
+      data: {
+        customerName: booking.customer.fullName,
+        bookingNumber: booking.bookingNumber,
+        amount: `${input.currency} ${input.amount}`,
+        balance: `${input.currency} ${input.balance}`,
+        categoryLabel: DEDUCTION_LABELS[input.category] ?? DEDUCTION_LABELS.OTHER,
+        reason: input.reason,
+        bookingUrl: `${env.PUBLIC_SITE_URL}/account/bookings/${bookingId}`,
+      },
+      related: { type: 'Booking', id: bookingId },
+    });
+  },
+
+  /** The remainder going back. */
+  async depositReleased(bookingId: string, input: { amount: string; currency: string }) {
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { bookingNumber: true, customerId: true, customer: { select: { fullName: true } } },
+    });
+    if (!booking) return;
+
+    await notificationsService.send({
+      templateKey: TemplateKey.DEPOSIT_RELEASED,
+      recipientId: booking.customerId,
+      data: {
+        customerName: booking.customer.fullName,
+        bookingNumber: booking.bookingNumber,
+        amount: `${input.currency} ${input.amount}`,
+        bookingUrl: `${env.PUBLIC_SITE_URL}/account/bookings/${bookingId}`,
+      },
+      related: { type: 'Booking', id: bookingId },
+    });
+  },
+
+  /**
+   * Registration and insurance expiries, to the people who can renew them.
+   *
+   * Goes to every ADMIN rather than one nominated address: BRD 41 says the
+   * admin is reminded, and picking a single recipient would mean a renewal
+   * silently missed while that person is on leave.
+   *
+   * Idempotent by query, like the booking reminders: one message per item per
+   * reminder day, however often the job runs. `dueReminders()` already returns
+   * only items landing EXACTLY on a reminder day, so a 30-day warning fires
+   * once - not every day for a month.
+   */
+  async runExpiryReminders(now = new Date()) {
+    const { insuranceService } = await import('../fleet/insuranceService');
+    const due = await insuranceService.dueReminders();
+    if (due.length === 0) return { sent: 0, items: 0 };
+
+    const admins = await prisma.user.findMany({
+      where: { role: 'ADMIN', status: 'ACTIVE' },
+      select: { id: true, fullName: true },
+    });
+    if (admins.length === 0) {
+      logger.warn('Vehicle expiries are due but no active admin exists to tell', {
+        items: due.length,
+      });
+      return { sent: 0, items: due.length };
+    }
+
+    const companyName = (await settingsService.getString(SettingKey.COMPANY_NAME)) ?? '';
+    const today = now.toISOString().slice(0, 10);
+    let sent = 0;
+
+    for (const item of due) {
+      for (const admin of admins) {
+        /*
+         * One row per admin per item per DAY. The related id carries the day
+         * so that next year's renewal of the same policy is a new reminder
+         * rather than one suppressed as already sent.
+         */
+        const relatedId = `${item.id}:${today}`;
+        const already = await prisma.notification.findFirst({
+          where: {
+            templateKey: TemplateKey.EXPIRY_REMINDER,
+            recipientId: admin.id,
+            relatedType: 'VehicleExpiry',
+            relatedId,
+            status: { in: ['SENT', 'PENDING'] },
+          },
+          select: { id: true },
+        });
+        if (already) continue;
+
+        await notificationsService.send({
+          templateKey: TemplateKey.EXPIRY_REMINDER,
+          recipientId: admin.id,
+          data: {
+            recipientName: admin.fullName,
+            vehicle: item.vehicle,
+            label: item.label,
+            kindLabel: item.kind === 'INSURANCE' ? 'Insurance' : 'A vehicle document',
+            expiryDate: item.expiryDate,
+            daysRemaining: String(item.daysRemaining),
+            companyName,
+          },
+          related: { type: 'VehicleExpiry', id: relatedId },
+        });
+        sent += 1;
+      }
+    }
+
+    logger.info('Expiry reminder sweep finished', { items: due.length, sent });
+    return { sent, items: due.length };
   },
 
   /**

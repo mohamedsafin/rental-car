@@ -14,16 +14,18 @@
  */
 import { Router } from 'express';
 import { authenticate } from '../../middleware/authenticate';
-import { authorizeStaff } from '../../middleware/authorize';
+import { authorizeAdmin, authorizeStaff } from '../../middleware/authorize';
 import { getValidatedQuery, validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
-import { sendPaginated, sendSuccess } from '../../utils/apiResponse';
-import { requestContext } from '../audit/service';
+import { sendCreated, sendPaginated, sendSuccess } from '../../utils/apiResponse';
 import { documentService } from '../documents/service';
+import { requestContext } from '../audit/service';
 import { customersService } from './service';
 import {
+  createWalkInCustomerSchema,
   customerIdParamSchema,
   listCustomersQuerySchema,
+  staffUpdateCustomerSchema,
   updateCustomerProfileSchema,
   type ListCustomersQuery,
 } from './validation';
@@ -95,6 +97,94 @@ router.get(
     const documents = await documentService.listForCustomer(customerId, true);
 
     sendSuccess(res, { customer, verification, documents }, 'Customer retrieved');
+  }),
+);
+
+/**
+ * POST /customers - open an account for a walk-in.
+ *
+ * Staff only. The customer sets their own password from an emailed link; this
+ * endpoint never accepts one, so there is no way for it to create an account
+ * whose credentials a member of staff knows.
+ */
+router.post(
+  '/',
+  authorizeStaff,
+  validate({ body: createWalkInCustomerSchema }),
+  asyncHandler(async (req, res) => {
+    const customer = await customersService.createWalkIn(req.body, {
+      id: req.user!.id,
+      email: req.user!.email,
+      role: req.user!.role,
+      ...requestContext(req),
+    });
+    sendCreated(res, { customer }, 'Customer created');
+  }),
+);
+
+/**
+ * GET /customers/:id/profile - everything about one customer, on one screen.
+ *
+ * Separate from GET /customers/:id, which is the record itself. This is the
+ * record PLUS the history that decides whether to hand over another set of
+ * keys: how many rentals, what they have spent, what is still owed.
+ */
+router.get(
+  '/:id/profile',
+  authorizeStaff,
+  validate({ params: customerIdParamSchema }),
+  asyncHandler(async (req, res) => {
+    const profile = await customersService.profileForStaff(req.params.id as string, {
+      id: req.user!.id,
+      email: req.user!.email,
+      role: req.user!.role,
+      ...requestContext(req),
+    });
+    sendSuccess(res, profile, 'Customer profile retrieved');
+  }),
+);
+
+/**
+ * PATCH /customers/:id - correct somebody's file from the counter.
+ *
+ * Audited by name: staff writing another person's date of birth and licence
+ * details should leave a trail, which the customer's own edit does not need.
+ */
+router.patch(
+  '/:id',
+  authorizeStaff,
+  validate({ params: customerIdParamSchema, body: staffUpdateCustomerSchema }),
+  asyncHandler(async (req, res) => {
+    const customer = await customersService.updateForStaff(req.params.id as string, req.body, {
+      id: req.user!.id,
+      email: req.user!.email,
+      role: req.user!.role,
+      ...requestContext(req),
+    });
+    sendSuccess(res, { customer }, 'Customer updated');
+  }),
+);
+
+/**
+ * POST /customers/:id/erase - honour a right-to-be-forgotten request.
+ *
+ * ADMIN only and irreversible. It anonymises rather than deletes: UAE tax law
+ * requires the transactions to survive for five years, so what goes is
+ * everything that identifies the person, and what stays is a nameless record
+ * of what was bought.
+ */
+router.post(
+  '/:id/erase',
+  authorizeAdmin,
+  validate({ params: customerIdParamSchema }),
+  asyncHandler(async (req, res) => {
+    const result = await customersService.erase(req.params.id as string, {
+      id: req.user!.id,
+      email: req.user!.email,
+      role: req.user!.role,
+      ...requestContext(req),
+    });
+    sendSuccess(res, result, 'Customer details erased');
   }),
 );
 

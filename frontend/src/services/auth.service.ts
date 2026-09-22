@@ -27,4 +27,22 @@ export const authService = {
 
   changePassword: (data: { currentPassword: string; newPassword: string }) =>
     postData<null>('/auth/change-password', data),
+
+  /*
+   * Forgotten passwords.
+   *
+   * `forgotPassword` resolves the same way whether or not the address has an
+   * account - the server refuses to say, so the page must not pretend to know
+   * either. Anything the UI does with the answer would leak what the API
+   * deliberately withheld.
+   */
+  forgotPassword: (email: string) => postData<null>('/auth/forgot-password', { email }),
+
+  resetPassword: (token: string, password: string) =>
+    postData<null>('/auth/reset-password', { token, password }),
+
+  verifyEmail: (token: string) => postData<{ email: string }>('/auth/verify-email', { token }),
+
+  resendVerification: () =>
+    postData<{ alreadyVerified: boolean }>('/auth/resend-verification'),
 };

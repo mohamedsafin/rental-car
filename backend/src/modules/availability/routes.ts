@@ -9,12 +9,16 @@
  * useful. Customers get a plain yes/no.
  */
 import { Router } from 'express';
-import { optionalAuthenticate } from '../../middleware/authenticate';
+import { z } from 'zod';
+import { authenticate, optionalAuthenticate } from '../../middleware/authenticate';
+import { authorizeStaff } from '../../middleware/authorize';
+import { ApiError } from '../../utils/ApiError';
 import { getValidatedQuery, validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { sendPaginated, sendSuccess } from '../../utils/apiResponse';
 import { availabilityService } from './service';
 import { searchService } from './searchService';
+import { isBackOffice } from '../../modules/auth/roles';
 import {
   availabilityCheckSchema,
   blockedDatesParamSchema,
@@ -22,6 +26,22 @@ import {
   type AvailabilityCheckInput,
   type SearchQuery,
 } from './validation';
+
+/**
+ * The planning window. Both ends optional - the common case is "the next month
+ * from today", and a calendar that demands two dates before it will draw
+ * anything is a calendar people stop opening.
+ */
+const calendarSchema = z.object({
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+});
+
+/** Midnight UTC today. The calendar's default starting point. */
+function startOfToday(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
 
 const router = Router();
 
@@ -78,12 +98,12 @@ router.get(
   validate({ query: availabilityCheckSchema }),
   asyncHandler(async (req, res) => {
     const query = getValidatedQuery<AvailabilityCheckInput>(req);
-    const isBackOffice = req.user?.role === 'ADMIN' || req.user?.role === 'STAFF';
+    const backOffice = isBackOffice(req.user?.role);
 
     const result = await availabilityService.checkVehicle(
       query.vehicleId,
       { pickupAt: query.pickupAt, returnAt: query.returnAt },
-      { includeConflictDetail: isBackOffice },
+      { includeConflictDetail: backOffice },
     );
 
     sendSuccess(res, result, result.available ? 'Vehicle is available' : 'Vehicle is not available');
@@ -102,6 +122,33 @@ router.get(
   asyncHandler(async (req, res) => {
     const blockedDates = await searchService.getBlockedDates(req.params.vehicleId as string);
     sendSuccess(res, { blockedDates }, 'Blocked dates retrieved');
+  }),
+);
+
+/**
+ * GET /availability/calendar - the whole fleet's commitments in one view.
+ *
+ * Staff only: it names customers and shows the workshop schedule, neither of
+ * which belongs on the public site. Capped at 92 days because a calendar wider
+ * than a quarter is a report, not a planning tool, and rendering one is slow
+ * enough that somebody would ask for a year.
+ */
+router.get(
+  '/calendar',
+  authenticate,
+  authorizeStaff,
+  validate({ query: calendarSchema }),
+  asyncHandler(async (req, res) => {
+    const query = getValidatedQuery<z.infer<typeof calendarSchema>>(req);
+
+    const from = query.from ?? startOfToday();
+    const to = query.to ?? new Date(from.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    if (to.getTime() - from.getTime() > 92 * 24 * 60 * 60 * 1000) {
+      throw ApiError.badRequest('Ask for at most 92 days at a time.');
+    }
+
+    sendSuccess(res, await availabilityService.calendar({ from, to }));
   }),
 );
 

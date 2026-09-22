@@ -19,8 +19,21 @@ import './index.css';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Do not hammer the API when the user tabs back and forth.
-      refetchOnWindowFocus: false,
+      /*
+       * Refetch when the tab regains focus.
+       *
+       * The customer site and the admin dashboard are separate apps in
+       * separate tabs, so nothing tells this one that staff just confirmed a
+       * booking or published a car - React Query's cache invalidation only
+       * reaches queries inside the same app. Without this, the only way to see
+       * a change made next door was a manual page refresh.
+       *
+       * `staleTime` is what stops it hammering the API: a query fetched less
+       * than 30 seconds ago is still fresh, so tabbing back and forth costs
+       * nothing. Turning the refetch off entirely was solving that problem
+       * twice, at the cost of showing stale data indefinitely.
+       */
+      refetchOnWindowFocus: true,
       staleTime: 30000,
       retry: 1,
     },

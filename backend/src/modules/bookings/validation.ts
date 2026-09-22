@@ -33,6 +33,15 @@ const ALL_STATUSES = [
 export const createBookingSchema = z
   .object({
     vehicleId: z.string().uuid('Choose a vehicle'),
+    /*
+     * Who the booking is for, when staff are booking for a walk-in.
+     *
+     * IGNORED for a customer - the service reads their id from the token
+     * instead. Accepting it here and enforcing it there is deliberate: the
+     * schema describes the shape of the request, and who may use a field is a
+     * question about the caller, which only the service knows.
+     */
+    customerId: z.string().uuid('Choose a customer').optional(),
     pickupAt: isoDateTime,
     returnAt: isoDateTime,
     pickupLocationId: z.string().uuid().optional(),
@@ -46,7 +55,21 @@ export const createBookingSchema = z
       )
       .max(20)
       .default([]),
+    /*
+     * How the rental is paid for.
+     *
+     * MONTHLY is the normal arrangement for a long-term fleet: the first month
+     * and the deposit confirm the booking, and each later month falls due on
+     * its own start date. UPFRONT stays the default so short rentals are
+     * unaffected.
+     *
+     * The TERM is not taken from here - it is derived from the dates, so the
+     * schedule cannot disagree with the booking it belongs to.
+     */
+    billingCycle: z.enum(['UPFRONT', 'MONTHLY']).default('UPFRONT'),
     customerNotes: z.string().max(1000).trim().optional(),
+    /// Counter notes. Ignored for a customer - see `customerId` above.
+    staffNotes: z.string().max(1000).trim().optional(),
     /// The promo code as typed. Re-validated server-side at this point, so a
     /// code that expired between quote and checkout is refused here.
     couponCode: z.string().min(1).max(40).trim().optional(),
@@ -56,6 +79,31 @@ export const createBookingSchema = z
     paymentMethod: z.enum(['ONLINE', 'CASH_ON_PICKUP']).default('ONLINE'),
   })
   .refine((data) => data.returnAt > data.pickupAt, {
+    message: 'Return must be after pickup',
+    path: ['returnAt'],
+  });
+
+/**
+ * Changing a booking before the car goes out.
+ *
+ * Everything optional: the common edit is one field. What is NOT here is as
+ * important - no price, no status, no customer. The price is recalculated by
+ * the engine, the status has its own endpoint, and moving a booking to a
+ * different customer is not an edit, it is a different booking.
+ */
+export const editBookingSchema = z
+  .object({
+    pickupAt: isoDateTime.optional(),
+    returnAt: isoDateTime.optional(),
+    vehicleId: z.string().uuid('Choose a vehicle').optional(),
+    pickupLocationId: z.string().uuid().optional(),
+    dropoffLocationId: z.string().uuid().optional(),
+    reason: z.string().max(500).trim().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'Provide at least one thing to change',
+  })
+  .refine((data) => !data.pickupAt || !data.returnAt || data.returnAt > data.pickupAt, {
     message: 'Return must be after pickup',
     path: ['returnAt'],
   });
@@ -94,6 +142,20 @@ export const listBookingsQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
   status: z.enum(ALL_STATUSES).optional(),
+  /**
+   * "Owes us money for the rental."
+   *
+   * Not expressible as a single `status` any more. Confirmation happens before
+   * payment, so a booking awaiting payment is CONFIRMED *or* PAYMENT_PENDING,
+   * and only when it is paid online - a cash booking owes nothing until the
+   * counter. The dashboard tile and the outstanding report both mean exactly
+   * this, and before this filter existed they answered it differently: the
+   * tile counted PAYMENT_PENDING alone and quietly disagreed with the report.
+   */
+  awaitingPayment: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
   vehicleId: z.string().uuid().optional(),
   search: z.string().trim().max(120).optional(),
   from: isoDateTime.optional(),
@@ -113,3 +175,5 @@ export type CancelBookingInput = z.infer<typeof cancelBookingSchema>;
 export type ChangeStatusInput = z.infer<typeof changeStatusSchema>;
 export type MyBookingsQuery = z.infer<typeof myBookingsQuerySchema>;
 export type ListBookingsQuery = z.infer<typeof listBookingsQuerySchema>;
+
+export type EditBookingInput = z.infer<typeof editBookingSchema>;

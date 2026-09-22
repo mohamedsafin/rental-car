@@ -17,9 +17,9 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAddPolicy, useExpiring } from '../features/fleetOps/useFleetOps';
-import { useAdminVehicles } from '../features/fleet/useFleetAdmin';
+import { useVehicleOptions } from '../features/fleet/useFleetAdmin';
 import FormField from '../components/FormField';
-import type { ExpiryItem } from '../types/fleetOps';
+import type { ExpiryItem, ServiceDueItem } from '../types/fleetOps';
 
 const EMPTY = {
   vehicleId: '',
@@ -29,6 +29,7 @@ const EMPTY = {
   startDate: '',
   expiryDate: '',
   premium: '',
+  excessAmount: '',
 };
 
 function ExpiryRow({ item, urgent }: { item: ExpiryItem; urgent: boolean }) {
@@ -59,10 +60,66 @@ function ExpiryRow({ item, urgent }: { item: ExpiryItem; urgent: boolean }) {
   );
 }
 
+/**
+ * One car's service position, in whichever units were actually recorded.
+ *
+ * "Due in 12 days" and "due in 340km" are different sentences, and a car with
+ * both gets both - joined rather than reduced to whichever sounds worse.
+ */
+function serviceWhen(item: ServiceDueItem): string {
+  const parts: string[] = [];
+
+  if (item.daysRemaining !== null) {
+    parts.push(
+      item.daysRemaining < 0
+        ? `${Math.abs(item.daysRemaining)} days overdue`
+        : item.daysRemaining === 0
+          ? 'due today'
+          : `in ${item.daysRemaining} days`,
+    );
+  }
+
+  if (item.kmRemaining !== null) {
+    parts.push(
+      item.kmRemaining < 0
+        ? `${Math.abs(item.kmRemaining).toLocaleString()} km past due`
+        : `in ${item.kmRemaining.toLocaleString()} km`,
+    );
+  }
+
+  return parts.join(' · ') || 'no target recorded';
+}
+
+function ServiceRow({ item }: { item: ServiceDueItem }) {
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+      <div>
+        <p className="text-sm font-medium text-slate-900">{item.label}</p>
+        <p className="text-xs text-slate-500">
+          Service -{' '}
+          <Link to={`/vehicles/${item.vehicleId}`} className="underline">
+            {item.vehicle}
+          </Link>
+        </p>
+      </div>
+      <div className="text-right">
+        <p className={item.overdue ? 'text-sm font-semibold text-red-700' : 'text-sm text-slate-900'}>
+          {serviceWhen(item)}
+        </p>
+        <p className="text-xs text-slate-500">
+          {item.dueMileage !== null
+            ? `${item.currentMileage.toLocaleString()} of ${item.dueMileage.toLocaleString()} km`
+            : item.dueDate}
+        </p>
+      </div>
+    </li>
+  );
+}
+
 export default function ExpiryPage() {
   const [withinDays, setWithinDays] = useState<number | undefined>(undefined);
   const { data, isPending } = useExpiring(withinDays);
-  const { data: vehicles } = useAdminVehicles({ page: 1, limit: 100 });
+  const { data: vehicles } = useVehicleOptions();
   const addPolicy = useAddPolicy();
 
   const [showForm, setShowForm] = useState(false);
@@ -82,6 +139,7 @@ export default function ExpiryPage() {
         startDate: form.startDate,
         expiryDate: form.expiryDate,
         premium: form.premium || undefined,
+        excessAmount: form.excessAmount || undefined,
       },
       {
         onSuccess: () => {
@@ -134,7 +192,7 @@ export default function ExpiryPage() {
                 className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 <option value="">Select a vehicle</option>
-                {(vehicles?.items ?? []).map((vehicle) => (
+                {(vehicles ?? []).map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>
                     {vehicle.registrationNumber} - {vehicle.brand} {vehicle.model}
                   </option>
@@ -185,6 +243,14 @@ export default function ExpiryPage() {
               inputMode="decimal"
               value={form.premium}
               onChange={(event) => setForm({ ...form, premium: event.target.value })}
+            />
+            <FormField
+              label="Excess (AED)"
+              name="excessAmount"
+              inputMode="decimal"
+              hint="What the hirer pays before the insurer pays anything. Printed on the agreement."
+              value={form.excessAmount}
+              onChange={(event) => setForm({ ...form, excessAmount: event.target.value })}
             />
           </div>
 
@@ -260,6 +326,30 @@ export default function ExpiryPage() {
               </ul>
             )}
           </section>
+
+          {/*
+            Services sit with the expiries because they answer the same
+            question in a different unit: what is about to make a car
+            unrentable? Rendered only when there is something to say - an
+            empty panel on every visit is a panel staff learn to skip.
+          */}
+          {data.serviceDue.length > 0 && (
+            <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <header className="border-b border-slate-200 bg-slate-50 px-5 py-3">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Service due ({data.serviceDue.length})
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  By date, or within 1,000 km of the odometer target set at the last service.
+                </p>
+              </header>
+              <ul className="divide-y divide-slate-100">
+                {data.serviceDue.map((item) => (
+                  <ServiceRow key={item.id} item={item} />
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
       )}
     </div>

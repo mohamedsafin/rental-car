@@ -30,6 +30,15 @@ export const createVehicleSchema = z.object({
     .max(20)
     .trim()
     .toUpperCase(),
+  /*
+   * The chassis number.
+   *
+   * Optional, because a fleet bought before this system existed should not be
+   * blocked from being entered. Not length-checked to 17: a 17-character VIN
+   * is the modern standard, older and imported vehicles vary, and a rule that
+   * rejects a real car off a real logbook would be worse than no rule.
+   */
+  vin: z.string().max(40).trim().toUpperCase().optional(),
 
   categoryId: z.string().uuid('Select a category'),
   locationId: z.string().uuid().optional(),
@@ -52,6 +61,14 @@ export const createVehicleSchema = z.object({
     .enum(['AVAILABLE', 'RESERVED', 'RENTED', 'UNDER_INSPECTION', 'UNDER_MAINTENANCE', 'UNAVAILABLE'])
     .default('AVAILABLE'),
   currentMileage: z.coerce.number().int().min(0).default(0),
+
+  /*
+   * What the car cost, so "which of my cars makes money" has an answer.
+   * All optional - see `vin` above for why nothing here is demanded.
+   */
+  purchasePrice: moneySchema.optional(),
+  purchaseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD').optional(),
+  currentValue: moneySchema.optional(),
 
   isFeatured: z.boolean().default(false),
   isPublished: z.boolean().default(true),

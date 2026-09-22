@@ -26,6 +26,8 @@ export const vehicleFormSchema = z.object({
   year: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1),
   variant: z.string().max(60).optional().or(z.literal('')),
   registrationNumber: z.string().min(1, 'Registration number is required').max(20),
+  /// Optional: an older or imported car may not have one recorded.
+  vin: z.string().max(40).optional().or(z.literal('')),
 
   categoryId: z.string().uuid('Select a category'),
   locationId: z.string().optional().or(z.literal('')),
@@ -51,6 +53,14 @@ export const vehicleFormSchema = z.object({
     'UNDER_MAINTENANCE',
     'UNAVAILABLE',
   ]),
+  /// Odometer now. Drives the service-due warnings on the expiry screen.
+  currentMileage: z.string().optional().or(z.literal('')),
+
+  /// What the car cost. Feeds "which of my cars makes money" - all optional.
+  purchasePrice: optionalMoney,
+  purchaseDate: z.string().optional().or(z.literal('')),
+  currentValue: optionalMoney,
+
   isFeatured: z.boolean(),
   isPublished: z.boolean(),
   description: z.string().max(2000).optional().or(z.literal('')),
@@ -76,6 +86,7 @@ export function toApiPayload(
     year: values.year,
     variant: clean(values.variant),
     registrationNumber: values.registrationNumber,
+    vin: clean(values.vin),
     categoryId: values.categoryId,
     locationId: clean(values.locationId),
     seats: values.seats,
@@ -92,6 +103,10 @@ export function toApiPayload(
       : undefined,
     extraMileageCharge: clean(values.extraMileageCharge),
     status: values.status,
+    currentMileage: clean(values.currentMileage) ? Number(values.currentMileage) : undefined,
+    purchasePrice: clean(values.purchasePrice),
+    purchaseDate: clean(values.purchaseDate),
+    currentValue: clean(values.currentValue),
     isFeatured: values.isFeatured,
     isPublished: values.isPublished,
     description: clean(values.description),

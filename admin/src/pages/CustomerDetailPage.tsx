@@ -11,6 +11,9 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import DocumentViewer from '../components/DocumentViewer';
+import CustomerHistory from '../components/CustomerHistory';
+import CustomerEditForm from '../components/CustomerEditForm';
+import EraseCustomer from '../components/EraseCustomer';
 import { useCustomer, useReviewDocument } from '../features/customer/useCustomerAdmin';
 import { DOCUMENT_LABELS, STATUS_STYLE, type CustomerDocument } from '../types/customer';
 
@@ -164,6 +167,7 @@ function DocumentCard({ document }: { document: CustomerDocument }) {
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, isPending, isError, error } = useCustomer(id);
+  const [editing, setEditing] = useState(false);
 
   if (isPending) return <div className="h-96 animate-pulse rounded-lg bg-slate-200" />;
 
@@ -204,8 +208,42 @@ export default function CustomerDetailPage() {
         <p className="text-sm text-slate-600">{customer.user.email}</p>
       </div>
 
+      {/*
+        Everything the counter needs before handing over keys: how often they
+        rent, what they have spent, and above all what is still owed.
+      */}
+      {id && <CustomerHistory customerId={id} />}
+
       <section className="rounded-lg border border-slate-200 bg-white p-5">
-        <h3 className="font-semibold text-slate-900">Profile</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-slate-900">Profile</h3>
+          {!editing && (
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => setEditing(true)}>
+              Edit details
+            </button>
+          )}
+        </div>
+
+        {editing && id ? (
+          <CustomerEditForm
+            customer={{
+              id,
+              fullName: customer.user.fullName,
+              phone: customer.user.phone,
+              residencyStatus: customer.residencyStatus,
+              dateOfBirth: customer.dateOfBirth,
+              nationality: customer.nationality,
+              addressLine1: customer.address.line1,
+              city: customer.address.city,
+              emirate: customer.address.emirate,
+              licenceNumber: customer.licence.number,
+              licenceIssuingCountry: customer.licence.issuingCountry,
+              licenceExpiryDate: customer.licence.expiryDate,
+            }}
+            onDone={() => setEditing(false)}
+          />
+        ) : null}
+
         <dl className="mt-3 grid gap-3 sm:grid-cols-3">
           <Detail label="Phone" value={customer.user.phone ?? 'Not provided'} />
           <Detail
@@ -283,6 +321,12 @@ export default function CustomerDetailPage() {
           </div>
         </section>
       )}
+
+      {/*
+        Last on the page, and behind a typed confirmation, because it cannot be
+        undone. Admins only - the server enforces that too.
+      */}
+      {id && <EraseCustomer customerId={id} customerName={customer.user.fullName} />}
     </div>
   );
 }

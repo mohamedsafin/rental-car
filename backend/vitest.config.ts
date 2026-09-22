@@ -5,6 +5,9 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     globals: true,
+    // Pins the notification driver to `log` before any module reads the env.
+    // See tests/setup.ts: a test run must never reach a real inbox.
+    setupFiles: ['./tests/setup.ts'],
     // Backend tests hit the DB; run them sequentially to keep state predictable.
     fileParallelism: false,
 

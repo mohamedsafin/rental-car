@@ -42,6 +42,20 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
   'POST /auth/logout': 'Must work even with an expired access token, or sessions cannot be ended.',
   'POST /payments/webhook': 'Authenticated by HMAC signature over the raw body, not by a user.',
   'POST /pricing/quote': 'BRD 14: the customer reviews the price before logging in.',
+  /*
+   * Account recovery. Somebody who cannot sign in is exactly who needs these,
+   * so requiring a token would make them useless.
+   *
+   * What stands in for authentication:
+   *   forgot-password  answers identically for every address, so it grants
+   *                    nothing and reveals nothing; rate limited to 5/hour.
+   *   reset-password   authenticated by a single-use 256-bit token that was
+   *                    emailed to the address on the account.
+   *   verify-email     the same, and it only sets a flag.
+   */
+  'POST /auth/forgot-password': 'Cannot require a session to recover a lost one. Says nothing about whether the account exists, and is rate limited.',
+  'POST /auth/reset-password': 'Authenticated by the single-use token emailed to the account holder.',
+  'POST /auth/verify-email': 'Same - a single-use emailed token, and it only confirms an address.',
 };
 
 let customerToken: string;
@@ -181,6 +195,7 @@ describe('mass assignment', () => {
     const response = await request(app).post(`${API}/auth/register`).send({
       email,
       password: VALID_PASSWORD,
+      dateOfBirth: '1990-01-15',
       fullName: 'Escalation Attempt',
       phone: '+971500000000',
       // Not in the schema. `validate` replaces req.body with the parsed

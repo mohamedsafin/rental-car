@@ -20,6 +20,7 @@
  *    the whole family. That is how a stolen token gets caught.
  */
 import { env } from '../../config/env';
+import type { Role } from '@prisma/client';
 import { logger } from '../../config/logger';
 import { ApiError, ErrorCode } from '../../utils/ApiError';
 import { fakePasswordCheck, hashPassword, verifyPassword } from '../../utils/password';
@@ -45,7 +46,7 @@ const GENERIC_LOGIN_FAILURE = 'Invalid email or password';
 
 /** Issue an access + refresh pair and persist the refresh token's hash. */
 async function issueTokens(
-  user: { id: string; email: string; role: 'CUSTOMER' | 'ADMIN' | 'STAFF' },
+  user: { id: string; email: string; role: Role },
   meta: RequestMeta,
 ): Promise<{ accessToken: string; refreshToken: string; refreshTokenExpiresAt: Date }> {
   const accessToken = signAccessToken({ sub: user.id, email: user.email, role: user.role });
@@ -86,6 +87,9 @@ export const authService = {
       fullName: input.fullName,
       phone: input.phone,
       country: input.country,
+      // Creates the rental profile alongside the login, so the age rule has
+      // something to read at booking time instead of interrupting to ask.
+      dateOfBirth: input.dateOfBirth,
       // Hardcoded. Never taken from input.
       role: 'CUSTOMER',
     });

@@ -46,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((result) => {
         if (cancelled) return;
         tokenStore.set(result.accessToken);
+        tokenStore.setUserId(result.user.id);
         setUser(result.user);
       })
       .catch(() => {
@@ -71,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (credentials: LoginCredentials) => {
     const result = await authService.login(credentials);
     tokenStore.set(result.accessToken);
+    tokenStore.setUserId(result.user.id);
     setUser(result.user);
     return result.user;
   }, []);
@@ -78,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(async (data: RegisterData) => {
     const result = await authService.register(data);
     tokenStore.set(result.accessToken);
+    tokenStore.setUserId(result.user.id);
     setUser(result.user);
     return result.user;
   }, []);

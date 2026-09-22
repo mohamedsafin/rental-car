@@ -19,8 +19,20 @@ import './index.css';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Do not hammer the API when the user tabs back and forth.
-      refetchOnWindowFocus: false,
+      /*
+       * Refetch when the tab regains focus.
+       *
+       * Staff work across two tabs and alongside colleagues, so what is on
+       * screen here goes out of date because of someone else's action, not
+       * this app's - and cache invalidation cannot reach across a browser tab.
+       * Without this, a booking confirmed by a colleague stayed invisible
+       * until a manual refresh.
+       *
+       * `staleTime` is what stops it hammering the API: a query fetched less
+       * than 30 seconds ago is still fresh, so tabbing back and forth costs
+       * nothing.
+       */
+      refetchOnWindowFocus: true,
       staleTime: 30000,
       retry: 1,
     },

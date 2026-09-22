@@ -11,7 +11,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate';
-import { authorizeStaff } from '../../middleware/authorize';
+import { authorizeReports } from '../../middleware/authorize';
 import { getValidatedQuery, validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { sendSuccess } from '../../utils/apiResponse';
@@ -33,7 +33,7 @@ const rangeSchema = z.object({
 
 const router = Router();
 
-router.use(authenticate, authorizeStaff);
+router.use(authenticate, authorizeReports);
 
 /** GET /reports/dashboard - this month at a glance. */
 router.get(
@@ -58,6 +58,62 @@ router.get(
     sendSuccess(
       res,
       await reportsService.revenue({ from: query.from ?? range.from, to: query.to ?? range.to }),
+    );
+  }),
+);
+
+/**
+ * GET /reports/revenue-series - the same money, day by day.
+ *
+ * A total says how much; this says what shape the month had, which is the part
+ * a pricing or fleet decision actually turns on.
+ */
+router.get(
+  '/revenue-series',
+  validate({ query: rangeSchema }),
+  asyncHandler(async (req, res) => {
+    const query = getValidatedQuery<z.infer<typeof rangeSchema>>(req);
+    const range = defaultRange();
+    sendSuccess(
+      res,
+      await reportsService.revenueSeries({ from: query.from ?? range.from, to: query.to ?? range.to }),
+    );
+  }),
+);
+
+/**
+ * GET /reports/vehicles - which cars earn and which cost.
+ *
+ * Costs come from the vehicle expense ledger, so a fleet that has never
+ * recorded one sees every car showing its full revenue as profit. The response
+ * flags that rather than letting the screen imply it.
+ */
+router.get(
+  '/vehicles',
+  validate({ query: rangeSchema }),
+  asyncHandler(async (req, res) => {
+    const query = getValidatedQuery<z.infer<typeof rangeSchema>>(req);
+    const range = defaultRange();
+    sendSuccess(
+      res,
+      await reportsService.vehicleProfitability({
+        from: query.from ?? range.from,
+        to: query.to ?? range.to,
+      }),
+    );
+  }),
+);
+
+/** GET /reports/customers - who rents the most. */
+router.get(
+  '/customers',
+  validate({ query: rangeSchema }),
+  asyncHandler(async (req, res) => {
+    const query = getValidatedQuery<z.infer<typeof rangeSchema>>(req);
+    const range = defaultRange();
+    sendSuccess(
+      res,
+      await reportsService.customers({ from: query.from ?? range.from, to: query.to ?? range.to }),
     );
   }),
 );

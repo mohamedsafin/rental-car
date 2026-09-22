@@ -12,17 +12,35 @@
  *
  * The order follows BRD 3 and 53: documents are verified BEFORE payment.
  *
- *   PENDING ─────────────► DOCUMENT_VERIFICATION ──► PAYMENT_PENDING
- *      │                            │                      │
- *      └──────────────────────── CONFIRMED ◄───────────────┘
- *                                   │
- *                          READY_FOR_PICKUP
- *                                   │
- *                                ACTIVE ◄──► EXTENSION_REQUESTED
- *                                   │
- *                            RETURN_PENDING
- *                                   │
- *                               RETURNED ──► COMPLETED
+ *   PENDING ──► DOCUMENT_VERIFICATION ──► CONFIRMED ──► PAYMENT_PENDING
+ *                                             │                │
+ *                                             └──► READY_FOR_PICKUP ◄┘
+ *                                                        │
+ *                                                     ACTIVE ◄──► EXTENSION_REQUESTED
+ *                                                        │
+ *                                                 RETURN_PENDING
+ *                                                        │
+ *                                                    RETURNED ──► COMPLETED
+ *
+ * WHAT "CONFIRMED" MEANS, AND WHAT IT NO LONGER MEANS
+ *
+ * Confirmation is the moment the COMPANY accepts the customer: their documents
+ * passed, and the car is being held for them. It is deliberately NOT a receipt.
+ * Payment comes after it, which is how the counter actually works - nobody is
+ * asked for money before being told they qualify to rent.
+ *
+ * This inverts the previous order, and one assumption died with it: CONFIRMED
+ * used to imply "paid" for an online booking, and the handover leaned on that
+ * to decide whether to release keys. It no longer can. The money check now
+ * lives in two places instead:
+ *
+ *   1. an ONLINE booking cannot REACH `READY_FOR_PICKUP` without a successful
+ *      rental payment (enforced in the booking service), and
+ *   2. no booking of any kind is handed over until a payment is on file
+ *      (enforced in the rental service, for cash and card alike).
+ *
+ * The cash path is unchanged in spirit and now shares the main line:
+ * CONFIRMED ──► READY_FOR_PICKUP, with the notes counted at the counter.
  *
  * CANCELLED is reachable from anything before the car is handed over. Once a
  * rental is ACTIVE the vehicle is with the customer, so it must be RETURNED -
@@ -31,16 +49,24 @@
 import type { BookingStatus } from '@prisma/client';
 
 export const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
-  PENDING: ['DOCUMENT_VERIFICATION', 'PAYMENT_PENDING', 'CANCELLED'],
+  PENDING: ['DOCUMENT_VERIFICATION', 'CONFIRMED', 'CANCELLED'],
   /*
-   * CONFIRMED is reachable from here ONLY for a pay-at-pickup booking, which
-   * `changeStatus` enforces. Without it a cash customer whose documents are
-   * approved after booking would be stranded: the machine would insist they
-   * pay online first, which is the one thing they chose not to do.
+   * Approving the documents IS the confirmation, for card and cash alike.
+   * There is no longer a payment status wedged in between, so no customer
+   * gets asked for money before being told they qualify.
    */
-  DOCUMENT_VERIFICATION: ['PAYMENT_PENDING', 'CONFIRMED', 'CANCELLED'],
-  PAYMENT_PENDING: ['CONFIRMED', 'CANCELLED'],
-  CONFIRMED: ['READY_FOR_PICKUP', 'CANCELLED'],
+  DOCUMENT_VERIFICATION: ['CONFIRMED', 'CANCELLED'],
+  /*
+   * Two ways out, and which one is legitimate depends on how they are paying:
+   *
+   *   PAYMENT_PENDING  - an online customer has started checkout.
+   *   READY_FOR_PICKUP - nothing is owed online, i.e. pay-at-pickup.
+   *
+   * An ONLINE booking taking the second door without a cleared payment is the
+   * hole this reordering could have opened, so `changeStatus` closes it.
+   */
+  CONFIRMED: ['PAYMENT_PENDING', 'READY_FOR_PICKUP', 'CANCELLED'],
+  PAYMENT_PENDING: ['READY_FOR_PICKUP', 'CANCELLED'],
   READY_FOR_PICKUP: ['ACTIVE', 'CANCELLED'],
   ACTIVE: ['EXTENSION_REQUESTED', 'RETURN_PENDING'],
   EXTENSION_REQUESTED: ['ACTIVE', 'RETURN_PENDING'],

@@ -20,11 +20,11 @@ import { requestContext } from '../audit/service';
 import { vehiclesService, type FleetActor } from './service';
 import { vehicleImageService } from './imageService';
 import type { ListVehiclesQuery, UploadImagesQuery } from './validation';
-import type { VehicleImageType } from '@prisma/client';
+import { isBackOffice } from '../auth/roles';
 
 /** Back-office roles see the full record; everyone else sees the public view. */
-function isBackOffice(req: Request): boolean {
-  return req.user?.role === 'ADMIN' || req.user?.role === 'STAFF';
+function staffView(req: Request): boolean {
+  return isBackOffice(req.user?.role);
 }
 
 function actorFrom(req: Request): FleetActor {
@@ -39,12 +39,12 @@ function actorFrom(req: Request): FleetActor {
 export const vehiclesController = {
   list: asyncHandler(async (req: Request, res: Response) => {
     const query = getValidatedQuery<ListVehiclesQuery>(req);
-    const { items, total } = await vehiclesService.list(query, isBackOffice(req));
+    const { items, total } = await vehiclesService.list(query, staffView(req));
     sendPaginated(res, items, query.page, query.limit, total, 'Vehicles retrieved');
   }),
 
   getById: asyncHandler(async (req: Request, res: Response) => {
-    const vehicle = await vehiclesService.getById(req.params.id as string, isBackOffice(req));
+    const vehicle = await vehiclesService.getById(req.params.id as string, staffView(req));
     sendSuccess(res, { vehicle }, 'Vehicle retrieved');
   }),
 
@@ -68,7 +68,7 @@ export const vehiclesController = {
     if (!files || files.length === 0) throw ApiError.badRequest('No images were uploaded');
 
     const { type } = getValidatedQuery<UploadImagesQuery>(req);
-    await vehicleImageService.upload(req.params.id as string, files, type as VehicleImageType);
+    await vehicleImageService.upload(req.params.id as string, files, type);
 
     // Return the fresh vehicle so the admin UI can re-render the gallery from
     // the server's answer rather than guessing what changed.

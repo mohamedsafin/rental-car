@@ -17,9 +17,23 @@
     "prisma:generate": "npm run prisma:generate --workspace backend",
     "prisma:migrate": "npm run prisma:migrate --workspace backend",
     "prisma:studio": "npm run prisma:studio --workspace backend",
-    "audit:prod": "npm audit --omit=dev"
+    "audit:prod": "npm audit --omit=dev",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "npm run typecheck --workspace backend && npm run typecheck --workspace frontend && npm run typecheck --workspace admin",
+    "prisma:deploy": "npm run prisma:deploy --workspace backend",
+    "prisma:seed": "npm run prisma:seed --workspace backend",
+    "verify": "npm run lint && npm run typecheck && npm test"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "globals": "^17.12.0",
+    "typescript-eslint": "^8.70.0"
   }
 }

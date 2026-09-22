@@ -134,6 +134,7 @@ export async function evaluateRequirements(
       status: match?.status ?? 'MISSING',
       documentId: match?.id ?? null,
       rejectionReason: match?.rejectionReason ?? null,
+      expiryDate: match?.expiryDate ? match.expiryDate.toISOString().slice(0, 10) : null,
     };
   });
 
@@ -148,6 +149,7 @@ export async function evaluateRequirements(
       status: document.status,
       documentId: document.id,
       rejectionReason: document.rejectionReason,
+      expiryDate: document.expiryDate ? document.expiryDate.toISOString().slice(0, 10) : null,
     });
   }
 

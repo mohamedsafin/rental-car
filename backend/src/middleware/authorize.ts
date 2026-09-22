@@ -10,7 +10,7 @@
  *
  * Usage:
  *   router.get('/', authenticate, authorize('ADMIN'), controller.list);
- *   router.post('/:id/return', authenticate, authorize('ADMIN', 'STAFF'), ...);
+ *   router.post('/:id/return', authenticate, authorizeOperations, ...);
  */
 import type { NextFunction, Request, Response } from 'express';
 import type { Role } from '@prisma/client';
@@ -44,10 +44,51 @@ export function authorize(...allowedRoles: Role[]) {
 }
 
 /**
- * Allow admins and staff through; anyone else is refused.
- * Shorthand for the many back-office endpoints in later phases.
+ * ===========================================================================
+ * THE FOUR BACK-OFFICE DOORS
+ * ===========================================================================
+ * There used to be one: "staff", meaning everybody who was not a customer. A
+ * counter clerk could therefore read the whole payments and deposits ledger,
+ * and a workshop inspector could too - not because anyone decided that, but
+ * because there was nowhere else to put them.
+ *
+ * So the guards below describe AREAS OF WORK rather than job titles, and each
+ * role is admitted to the areas its job actually covers:
+ *
+ *   authorizeStaff      general back office - bookings, customers, fleet
+ *   authorizeFinance    money - payments, deposits, invoices
+ *   authorizeOperations cars and keys - handovers, returns, inspections, damage
+ *   authorizeReports    figures - the reports a manager or accountant reads
+ *   authorizeAdmin      the whole thing - users, settings, legal, audit
+ *
+ * STAFF deliberately keeps everything it had. Narrowing an existing role is a
+ * decision for the business, not a side effect of adding new ones - somebody
+ * who could take a cash payment yesterday should not be locked out today
+ * because a new job title appeared in an enum. ACCOUNTANT and INSPECTOR are
+ * the narrow ones, and they are narrow from the start.
  */
-export const authorizeStaff = authorize('ADMIN', 'STAFF');
+
+/** General back-office work. Not the two specialist roles. */
+export const authorizeStaff = authorize('ADMIN', 'MANAGER', 'STAFF');
+
+/**
+ * Money. An accountant belongs here and nowhere near a set of car keys.
+ */
+export const authorizeFinance = authorize('ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT');
+
+/**
+ * Cars, keys and condition. An inspector belongs here and nowhere near the
+ * payments ledger.
+ */
+export const authorizeOperations = authorize('ADMIN', 'MANAGER', 'STAFF', 'INSPECTOR');
+
+/**
+ * The figures.
+ *
+ * A counter clerk keeps their access, for the reason given above; the point of
+ * naming it separately is that an INSPECTOR never had it and never gets it.
+ */
+export const authorizeReports = authorize('ADMIN', 'MANAGER', 'STAFF', 'ACCOUNTANT');
 
 /** Allow only admins. */
 export const authorizeAdmin = authorize('ADMIN');

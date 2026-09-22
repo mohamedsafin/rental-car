@@ -15,6 +15,16 @@
  */
 let accessToken: string | null = null;
 
+/**
+ * Who this token belongs to.
+ *
+ * Kept alongside the token so a silent renewal can be checked against the
+ * person who signed in. A renewal that comes back as somebody else is not a
+ * session to carry on with - it is how an admin ends up looking at a screen
+ * labelled with their own name and filled with another account's permissions.
+ */
+let userId: string | null = null;
+
 /** Notified on change, so the Axios layer and React stay in step. */
 const listeners = new Set<(token: string | null) => void>();
 
@@ -26,7 +36,14 @@ export const tokenStore = {
     listeners.forEach((listener) => listener(token));
   },
 
+  getUserId: (): string | null => userId,
+
+  setUserId(id: string | null): void {
+    userId = id;
+  },
+
   clear(): void {
+    userId = null;
     tokenStore.set(null);
   },
 

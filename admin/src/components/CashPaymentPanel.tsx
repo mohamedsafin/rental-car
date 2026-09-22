@@ -41,9 +41,6 @@ export default function CashPaymentPanel({ booking }: { booking: Booking }) {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  // Only for bookings taken as pay-at-pickup.
-  if (booking.paymentMethod !== 'CASH_ON_PICKUP') return null;
-
   const owed = type === 'RENTAL' ? booking.pricing.totalAmount : booking.pricing.securityDeposit;
 
   const record = useMutation<CashPayment, NormalisedApiError, Record<string, unknown>>({
@@ -58,6 +55,17 @@ export default function CashPaymentPanel({ booking }: { booking: Booking }) {
     },
     onError: (err) => setError(err.message),
   });
+
+  /*
+   * Only for bookings taken as pay-at-pickup.
+   *
+   * Below every hook, deliberately. This used to sit above `useMutation`, so
+   * a booking whose payment method changed between renders changed the NUMBER
+   * of hooks React saw - which is the one thing hooks cannot survive, and it
+   * fails as a corrupted component rather than as an error pointing here.
+   */
+  if (booking.paymentMethod !== 'CASH_ON_PICKUP') return null;
+
 
   return (
     <section className="rounded-lg border border-amber-300 bg-amber-50 p-5">

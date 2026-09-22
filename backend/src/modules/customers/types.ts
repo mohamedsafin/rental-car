@@ -71,6 +71,15 @@ export interface DocumentRequirement {
   status: DocumentStatus | 'MISSING';
   documentId: string | null;
   rejectionReason: string | null;
+  /**
+   * When this document stops being valid.
+   *
+   * Exposed so a caller can say WHY a booking failed verification. A document
+   * that is fine today and expires mid-rental is refused - correctly - but
+   * "upload anything still outstanding" is useless advice when nothing is
+   * outstanding and the real problem is a date.
+   */
+  expiryDate: string | null;
 }
 
 export interface VerificationSummary {

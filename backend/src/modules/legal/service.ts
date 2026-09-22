@@ -13,7 +13,7 @@
  * because an empty page gets filled in and an invented one gets relied upon.
  */
 import { Prisma } from '@prisma/client';
-import type { LegalDocumentType } from '@prisma/client';
+import type { LegalDocumentType, Role } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { ApiError } from '../../utils/ApiError';
 import { auditService } from '../audit/service';
@@ -21,7 +21,7 @@ import { auditService } from '../audit/service';
 export interface LegalActor {
   id: string;
   email: string;
-  role: 'CUSTOMER' | 'ADMIN' | 'STAFF';
+  role: Role;
   ipAddress?: string;
   userAgent?: string;
 }

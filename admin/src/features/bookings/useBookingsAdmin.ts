@@ -12,6 +12,12 @@ export interface BookingFilters {
   page?: number;
   limit?: number;
   status?: BookingStatus;
+  /**
+   * Bookings that owe money for the rental: CONFIRMED or PAYMENT_PENDING, and
+   * online only. Not expressible as a single `status`, and defined once on the
+   * server so this cannot drift from the outstanding report.
+   */
+  awaitingPayment?: boolean;
   search?: string;
   from?: string;
   to?: string;
@@ -69,10 +75,20 @@ export function useCancelBookingAdmin() {
  * the server wins and the UI shows its 409.
  */
 export const NEXT_STATUSES: Record<BookingStatus, BookingStatus[]> = {
-  PENDING: ['DOCUMENT_VERIFICATION', 'PAYMENT_PENDING'],
-  DOCUMENT_VERIFICATION: ['PAYMENT_PENDING'],
-  PAYMENT_PENDING: ['CONFIRMED'],
+  PENDING: ['DOCUMENT_VERIFICATION', 'CONFIRMED'],
+  // Approving the documents IS the confirmation, for card and cash alike.
+  DOCUMENT_VERIFICATION: ['CONFIRMED'],
+  /*
+   * Only READY_FOR_PICKUP is offered by hand. PAYMENT_PENDING is reached when
+   * the customer starts checkout, not by a staff click - putting a button here
+   * would let staff shunt a booking onto a payment step the customer has not
+   * begun, and nothing would move it off again.
+   *
+   * For an ONLINE booking the server refuses READY_FOR_PICKUP until the money
+   * clears, so the page disables that button rather than offering a refusal.
+   */
   CONFIRMED: ['READY_FOR_PICKUP'],
+  PAYMENT_PENDING: ['READY_FOR_PICKUP'],
   READY_FOR_PICKUP: ['ACTIVE'],
   ACTIVE: ['EXTENSION_REQUESTED', 'RETURN_PENDING'],
   EXTENSION_REQUESTED: ['ACTIVE', 'RETURN_PENDING'],

@@ -5,6 +5,10 @@
  * form in the app consistent - and keeps the accessibility wiring
  * (label/input association, aria-invalid, aria-describedby) in one place rather
  * than copy-pasted and half-forgotten across a dozen forms.
+ *
+ * The error styling comes from `.field-control[aria-invalid='true']` in
+ * index.css, so the red border can never disagree with what a screen reader
+ * is told.
  */
 import type { InputHTMLAttributes } from 'react';
 
@@ -21,7 +25,7 @@ export default function FormField({ label, name, error, hint, ...inputProps }: F
 
   return (
     <div>
-      <label htmlFor={name} className="block text-sm font-medium text-ink-700">
+      <label htmlFor={name} className="field-label">
         {label}
       </label>
       <input
@@ -29,20 +33,16 @@ export default function FormField({ label, name, error, hint, ...inputProps }: F
         name={name}
         aria-invalid={error ? 'true' : undefined}
         aria-describedby={error ? errorId : hint ? hintId : undefined}
-        className={
-          error
-            ? 'mt-1 block w-full rounded-md border border-red-400 px-3 py-2 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100'
-            : 'mt-1 block w-full rounded-md border border-ink-300 px-3 py-2 text-sm outline-none focus:border-ink-500 focus:ring-2 focus:ring-ink-100'
-        }
+        className="field-control"
         {...inputProps}
       />
       {error && (
-        <p id={errorId} className="mt-1 text-xs text-red-600">
+        <p id={errorId} className="mt-2 text-xs font-medium text-red-700">
           {error}
         </p>
       )}
       {!error && hint && (
-        <p id={hintId} className="mt-1 text-xs text-ink-500">
+        <p id={hintId} className="mt-2 text-xs text-ink-500">
           {hint}
         </p>
       )}

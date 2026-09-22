@@ -28,7 +28,11 @@ export const authRepository = {
     phone?: string;
     country?: string;
     role?: Role;
+    /// Only ever set for a customer - see the nested create below.
+    dateOfBirth?: string;
   }): Promise<User> {
+    const role = data.role ?? 'CUSTOMER';
+
     return prisma.user.create({
       data: {
         email: data.email,
@@ -36,7 +40,22 @@ export const authRepository = {
         fullName: data.fullName,
         phone: data.phone ?? null,
         country: data.country ?? null,
-        role: data.role ?? 'CUSTOMER',
+        role,
+        /*
+         * The rental profile is created WITH the account when a date of birth
+         * was given, rather than lazily on first access.
+         *
+         * Two reasons. The date has nowhere else to live - it belongs to the
+         * customer profile, not the login - and creating the row here means
+         * the booking flow finds an age on file instead of stopping to ask.
+         *
+         * Staff and admin accounts never get one: none of this applies to
+         * them, and a customers table full of empty rows for employees is
+         * exactly what the lazy creation was avoiding.
+         */
+        ...(data.dateOfBirth && role === 'CUSTOMER'
+          ? { customer: { create: { dateOfBirth: new Date(data.dateOfBirth) } } }
+          : {}),
       },
     });
   },

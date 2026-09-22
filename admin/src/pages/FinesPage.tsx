@@ -22,9 +22,11 @@ import {
   useTolls,
   useUpdateCharge,
 } from '../features/fleetOps/useFleetOps';
-import { useAdminVehicles } from '../features/fleet/useFleetAdmin';
+import { useVehicleOptions } from '../features/fleet/useFleetAdmin';
 import { useAuth } from '../hooks/useAuth';
 import FormField from '../components/FormField';
+import StatementImport from '../components/StatementImport';
+import AttachCharge from '../components/AttachCharge';
 
 const STATUS_STYLE: Record<string, string> = {
   RECORDED: 'bg-slate-100 text-slate-700',
@@ -34,9 +36,40 @@ const STATUS_STYLE: Record<string, string> = {
   DISPUTED: 'bg-red-100 text-red-700',
 };
 
+/**
+ * What the server made of the timestamp, in words.
+ *
+ * The ambiguous case earns its own sentence. When two rentals cover one
+ * moment the server deliberately attaches nothing - it used to pick whichever
+ * the database returned first, which billed a fine to a customer who had never
+ * collected the car - and staff need to be told that a decision is waiting for
+ * them, not left thinking nothing matched.
+ */
+function describeMatch(
+  result: {
+    matchedCustomer: { fullName: string; bookingNumber: string } | null;
+    ambiguousBetween: { bookingNumber: string; customerName: string }[];
+  },
+  noun: string,
+): string {
+  if (result.matchedCustomer) {
+    return `${result.matchedCustomer.fullName} had this car on booking ${result.matchedCustomer.bookingNumber}, so the ${noun} has been attached to it. Recover it when you are ready.`;
+  }
+
+  if (result.ambiguousBetween.length > 0) {
+    const list = result.ambiguousBetween
+      .map((option) => `${option.customerName} (${option.bookingNumber})`)
+      .join(' and ');
+    return `More than one rental covers that time - ${list} - so nothing was attached. Use Attach on the row below to say which one it was.`;
+  }
+
+  return `No rental covered that time, so this ${noun} stays with the company. Use Attach on the row below if you know who had the car.`;
+}
+
 const EMPTY_FINE = {
   vehicleId: '',
   fineNumber: '',
+  fineType: 'TRAFFIC',
   violationAt: '',
   violation: '',
   location: '',
@@ -64,7 +97,7 @@ export default function FinesPage() {
 
   const { data: fines, isPending: finesPending } = useFines({ page, limit: 20 });
   const { data: tolls, isPending: tollsPending } = useTolls({ page, limit: 20 });
-  const { data: vehicles } = useAdminVehicles({ page: 1, limit: 100 });
+  const { data: vehicles } = useVehicleOptions();
 
   const recordFine = useRecordFine();
   const recordToll = useRecordToll();
@@ -75,6 +108,52 @@ export default function FinesPage() {
   const [tollForm, setTollForm] = useState(EMPTY_TOLL);
   const [error, setError] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
+
+  /**
+   * Recovering takes the customer's money, so the outcome is spelled out
+   * rather than left as a silent success - especially the partial case, where
+   * the deposit covered only some of it and the rest still has to be invoiced.
+   */
+  function recoverRow(id: string) {
+    setError(null);
+    setSuggestion(null);
+    recover.mutate(id, {
+      onSuccess: (result) => {
+        const fromDeposit = Number(result.recoveredFromDeposit);
+        const toInvoice = Number(result.leftToInvoice);
+
+        /*
+         * A long-term customer is billed, not deducted.
+         *
+         * Reported first because the deposit wording below would otherwise
+         * read as a failure - "nothing could be taken from the deposit" is
+         * alarming when not touching the deposit was the intention.
+         */
+        if (result.billedWithInstalment !== null) {
+          setSuggestion(
+            `AED ${result.amount} has been added to month ${result.billedWithInstalment} of this rental. The customer pays it with that month's rent, and the deposit is untouched.`,
+          );
+          return;
+        }
+
+        if (fromDeposit === 0) {
+          setError(
+            `Nothing could be taken from the deposit (${
+              result.depositBalance === null ? 'none is being held' : 'it is already spent'
+            }). The full AED ${result.amount} remains as a charge to invoice.`,
+          );
+          return;
+        }
+
+        setSuggestion(
+          toInvoice > 0
+            ? `AED ${result.recoveredFromDeposit} taken from the deposit, which is now empty. AED ${result.leftToInvoice} is beyond it and stays as a charge to invoice.`
+            : `AED ${result.recoveredFromDeposit} taken from the deposit. AED ${result.depositBalance} still held.`,
+        );
+      },
+      onError: (err) => setError(err.message),
+    });
+  }
 
   function setParam(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -93,6 +172,7 @@ export default function FinesPage() {
       {
         vehicleId: fineForm.vehicleId,
         fineNumber: fineForm.fineNumber,
+        fineType: fineForm.fineType,
         violationAt: new Date(fineForm.violationAt).toISOString(),
         violation: fineForm.violation || undefined,
         location: fineForm.location || undefined,
@@ -102,11 +182,7 @@ export default function FinesPage() {
       {
         onSuccess: (result) => {
           setFineForm(EMPTY_FINE);
-          setSuggestion(
-            result.matchedCustomer
-              ? `${result.matchedCustomer.name} had this car on booking ${result.matchedCustomer.bookingNumber}. Attach the fine to that booking to recover it.`
-              : 'No rental covered that timestamp, so this fine stays with the company until someone attaches it.',
-          );
+          setSuggestion(describeMatch(result, 'fine'));
         },
         onError: (err) => setError(err.message),
       },
@@ -130,11 +206,7 @@ export default function FinesPage() {
       {
         onSuccess: (result) => {
           setTollForm(EMPTY_TOLL);
-          setSuggestion(
-            result.matchedCustomer
-              ? `${result.matchedCustomer.name} had this car on booking ${result.matchedCustomer.bookingNumber}.`
-              : 'No rental covered that crossing time.',
-          );
+          setSuggestion(describeMatch(result, 'crossing'));
         },
         onError: (err) => setError(err.message),
       },
@@ -182,8 +254,13 @@ export default function FinesPage() {
       )}
 
       {tab === 'fines' ? (
-        <form onSubmit={submitFine} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
-          <h3 className="text-sm font-semibold text-slate-900">Record a fine</h3>
+        <>
+          {/* Same reasoning as the tolls tab: the bulk path first, and the
+              one-at-a-time form for whatever the export missed. */}
+          <StatementImport kind="fines" />
+
+          <form onSubmit={submitFine} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+          <h3 className="text-sm font-semibold text-slate-900">Record one fine by hand</h3>
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="sm:col-span-1">
               <label htmlFor="fine-vehicle" className="block text-sm font-medium text-slate-700">
@@ -197,7 +274,7 @@ export default function FinesPage() {
                 className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 <option value="">Select a vehicle</option>
-                {(vehicles?.items ?? []).map((vehicle) => (
+                {(vehicles ?? []).map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>
                     {vehicle.registrationNumber} - {vehicle.brand} {vehicle.model}
                   </option>
@@ -213,6 +290,26 @@ export default function FinesPage() {
               onChange={(event) => setFineForm({ ...fineForm, fineNumber: event.target.value })}
               hint="Entering the same number twice is refused - one violation, one charge."
             />
+            <div>
+              <label htmlFor="fine-type" className="block text-sm font-medium text-slate-700">
+                Issued by
+              </label>
+              <select
+                id="fine-type"
+                value={fineForm.fineType}
+                onChange={(event) => setFineForm({ ...fineForm, fineType: event.target.value })}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="TRAFFIC">Police - traffic</option>
+                <option value="PARKING">Municipality or mall - parking</option>
+                <option value="OTHER">Something else</option>
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                Decides who the customer disputes it with, and whether a driver has to be
+                nominated.
+              </p>
+            </div>
+
             <FormField
               label="Violation time"
               name="violationAt"
@@ -258,10 +355,19 @@ export default function FinesPage() {
           >
             {recordFine.isPending ? 'Recording...' : 'Record fine'}
           </button>
-        </form>
+          </form>
+        </>
       ) : (
-        <form onSubmit={submitToll} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
-          <h3 className="text-sm font-semibold text-slate-900">Record a toll crossing</h3>
+        <>
+          {/*
+           * The importer comes first because it is what staff should reach for:
+           * one car crosses a gate sixty times a month, and the form below is
+           * for the one crossing the statement missed, not for the sixty.
+           */}
+          <StatementImport kind="tolls" />
+
+          <form onSubmit={submitToll} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+          <h3 className="text-sm font-semibold text-slate-900">Record one crossing by hand</h3>
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label htmlFor="toll-vehicle" className="block text-sm font-medium text-slate-700">
@@ -275,7 +381,7 @@ export default function FinesPage() {
                 className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 <option value="">Select a vehicle</option>
-                {(vehicles?.items ?? []).map((vehicle) => (
+                {(vehicles ?? []).map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>
                     {vehicle.registrationNumber} - {vehicle.brand} {vehicle.model}
                   </option>
@@ -326,7 +432,8 @@ export default function FinesPage() {
           >
             {recordToll.isPending ? 'Recording...' : 'Record toll'}
           </button>
-        </form>
+          </form>
+        </>
       )}
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -355,7 +462,14 @@ export default function FinesPage() {
                   <td className="px-4 py-3 text-slate-600">
                     {'fineNumber' in row ? (
                       <>
-                        <p className="text-slate-900">{row.fineNumber}</p>
+                        <p className="text-slate-900">
+                          {row.fineNumber}
+                          {row.fineType === 'PARKING' && (
+                            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                              Parking
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs">
                           {row.violation ?? 'Violation'} - {new Date(row.violationAt).toLocaleString()}
                         </p>
@@ -374,7 +488,11 @@ export default function FinesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-slate-600">
-                    {row.bookingNumber ?? <span className="text-slate-400">unattached</span>}
+                    {row.bookingNumber ?? (
+                      <span className="text-slate-400" title="No rental covered this timestamp, so the company pays it unless you attach it.">
+                        nobody yet
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -386,14 +504,46 @@ export default function FinesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-2">
-                      {canRecover && row.bookingId && row.status !== 'RECOVERED' && (
+                    <div className="flex flex-wrap items-start justify-end gap-2">
+                      {/*
+                        * Attaching comes before recovering, in both the layout
+                        * and the workflow: an unattached charge has nobody to
+                        * recover from, and the page used to say so without
+                        * offering any way to fix it.
+                        */}
+                      {row.status !== 'RECOVERED' && row.status !== 'WAIVED' && !row.bookingClosed && (
+                        <AttachCharge
+                          kind={tab}
+                          chargeId={row.id}
+                          attachedTo={row.bookingNumber ?? null}
+                          onDone={(message) => {
+                            setError(null);
+                            setSuggestion(message);
+                          }}
+                          onError={(message) => {
+                            setSuggestion(null);
+                            setError(message);
+                          }}
+                        />
+                      )}
+                      {row.bookingClosed && row.status !== 'RECOVERED' && row.status !== 'WAIVED' && (
+                        <span
+                          className="text-xs text-slate-400"
+                          title="The rental is finished. Charges had to be settled before it was completed, so this one stays with the company."
+                        >
+                          rental closed
+                        </span>
+                      )}
+                      {canRecover && row.bookingId && !row.bookingClosed && row.status !== 'RECOVERED' && (
                         <button
                           type="button"
-                          onClick={() => recover.mutate(row.id, { onError: (err) => setError(err.message) })}
-                          className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white"
+                          onClick={() => recoverRow(row.id)}
+                          disabled={recover.isPending}
+                          className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
                         >
-                          Recover
+                          {recover.isPending && recover.variables === row.id
+                            ? 'Recovering...'
+                            : 'Recover & deduct'}
                         </button>
                       )}
                       {row.status !== 'WAIVED' && row.status !== 'RECOVERED' && (

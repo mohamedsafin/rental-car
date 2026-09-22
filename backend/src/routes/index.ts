@@ -29,6 +29,9 @@ import { damageRoutes } from '../modules/damages/routes';
 import { fleetRoutes } from '../modules/fleet/routes';
 import { couponRoutes } from '../modules/coupons/routes';
 import { invoiceRoutes } from '../modules/invoices/routes';
+import { agreementRoutes } from '../modules/agreements/routes';
+import { accidentRoutes } from '../modules/accidents/routes';
+import { vehicleExpenseRoutes } from '../modules/fleet/expensesRoutes';
 import { notificationRoutes } from '../modules/notifications/routes';
 import { reportRoutes } from '../modules/reports/routes';
 import { legalRoutes } from '../modules/legal/routes';
@@ -71,6 +74,12 @@ export const API_MOUNTS = {
   '/fleet': fleetRoutes,
   '/coupons': couponRoutes,
   '/invoices': invoiceRoutes,
+  // The signed contract. Customers reach their own through /agreements/:id.
+  '/agreements': agreementRoutes,
+  // Accidents and insurance claims. Back-office only - see the module header.
+  '/accidents': accidentRoutes,
+  // What the fleet costs. The other half of 'does this car make money'.
+  '/fleet/expenses': vehicleExpenseRoutes,
   '/notifications': notificationRoutes,
   '/reports': reportRoutes,
   // Partly public: terms a customer must sign in to read are terms they

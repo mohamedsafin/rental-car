@@ -11,7 +11,7 @@ import { createApp } from '../src/app';
 import { prisma, disconnectPrisma } from '../src/config/prisma';
 import { env } from '../src/config/env';
 import { clearSettingsCache } from '../src/modules/settings/service';
-import { API, cleanupUsers, createUser, loginAndGetToken } from './helpers';
+import { API, cleanupUsers, createUser, loginAndGetToken, payRental } from './helpers';
 
 const app = createApp();
 const createdEmails: string[] = [];
@@ -35,7 +35,8 @@ function past(days: number): string {
   return date.toISOString();
 }
 
-function sign(body: string): string {
+/** Kept for webhook-driven tests; underscore marks it deliberately unused. */
+function _sign(body: string): string {
   return crypto
     .createHmac('sha256', env.PAYMENT_WEBHOOK_SECRET ?? '')
     .update(Buffer.from(body, 'utf8'))
@@ -94,10 +95,27 @@ beforeAll(async () => {
   clearSettingsCache();
 });
 
+/**
+ * Vehicles this suite creates beyond the shared one.
+ *
+ * Anything measuring what the FLEET says needs a car of its own, and the
+ * cleanup below has to know about it - a booking left pointing at a deleted
+ * test user is what turns a passing suite into a failing teardown.
+ */
+const extraVehicleIds: string[] = [];
+
 afterAll(async () => {
-  const bookings = await prisma.booking.findMany({ where: { vehicleId }, select: { id: true } });
+  const allVehicles = [vehicleId, ...extraVehicleIds];
+  const bookings = await prisma.booking.findMany({
+    where: { vehicleId: { in: allVehicles } },
+    select: { id: true },
+  });
   const ids = bookings.map((b) => b.id);
   if (ids.length > 0) {
+    // Returning a car with damage notes now RAISES a damage record, so these
+    // exist where they never used to and hold the vehicle down on delete.
+    await prisma.damagePhoto.deleteMany({ where: { damage: { bookingId: { in: ids } } } });
+    await prisma.damage.deleteMany({ where: { bookingId: { in: ids } } });
     await prisma.inspectionPhoto.deleteMany({
       where: { inspection: { rental: { bookingId: { in: ids } } } },
     });
@@ -113,7 +131,7 @@ afterAll(async () => {
     await prisma.bookingService.deleteMany({ where: { bookingId: { in: ids } } });
     await prisma.booking.deleteMany({ where: { id: { in: ids } } });
   }
-  await prisma.vehicle.deleteMany({ where: { id: vehicleId } });
+  await prisma.vehicle.deleteMany({ where: { id: { in: allVehicles } } });
 
   const customers = await prisma.customer.findMany({
     where: { user: { email: { in: createdEmails } } },
@@ -132,17 +150,22 @@ afterAll(async () => {
 async function readyBooking(
   pickupAt: string,
   returnAt: string,
+  onVehicle?: string,
 ): Promise<{ bookingId: string }> {
   const created = await request(app)
     .post(`${API}/bookings`)
     .set('Authorization', `Bearer ${customerToken}`)
-    .send({ vehicleId, pickupAt, returnAt });
+    .send({ vehicleId: onVehicle ?? vehicleId, pickupAt, returnAt });
 
   const bookingId = created.body.data.booking.id as string;
 
-  // Straight to READY_FOR_PICKUP via the status API, so these tests exercise
-  // the rental module rather than re-testing payments.
-  for (const status of ['PAYMENT_PENDING', 'CONFIRMED', 'READY_FOR_PICKUP']) {
+  // Payment first: confirmation no longer implies it, so both the
+  // READY_FOR_PICKUP transition and the handover now refuse an unpaid booking.
+  await payRental(bookingId);
+
+  // Then straight to READY_FOR_PICKUP via the status API, so these tests
+  // exercise the rental module rather than re-testing payments.
+  for (const status of ['CONFIRMED', 'PAYMENT_PENDING', 'READY_FOR_PICKUP']) {
     await request(app)
       .patch(`${API}/bookings/${bookingId}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
@@ -234,6 +257,16 @@ describe('vehicle handover (BRD 24)', () => {
 });
 
 describe('vehicle return and charges (BRD 26, 30)', () => {
+  /*
+   * The PAST window has to be unique too.
+   *
+   * The comment below always said each call needs its own window, and the
+   * future one is - but every call then dragged the booking onto the SAME past
+   * dates, so the exclusion constraint refused the second overlap. It only
+   * went unnoticed while few tests used this helper.
+   */
+  let pastWindowSeq = 0;
+
   /** Hand a car over, then move the due-back time into the past. */
   async function activeOverdueRental(mileage: number, startDay: number): Promise<string> {
     // Each call needs its OWN window: these bookings share one vehicle, and
@@ -246,7 +279,9 @@ describe('vehicle return and charges (BRD 26, 30)', () => {
     expect(created.status).toBe(201);
     const bookingId = created.body.data.booking.id as string;
 
-    for (const status of ['PAYMENT_PENDING', 'CONFIRMED', 'READY_FOR_PICKUP']) {
+    await payRental(bookingId);
+
+    for (const status of ['CONFIRMED', 'PAYMENT_PENDING', 'READY_FOR_PICKUP']) {
       await request(app)
         .patch(`${API}/bookings/${bookingId}/status`)
         .set('Authorization', `Bearer ${adminToken}`)
@@ -262,9 +297,13 @@ describe('vehicle return and charges (BRD 26, 30)', () => {
     // database's bookings_return_after_pickup check refuses an inverted range
     // - correctly - and caught this test's first attempt to fake a late
     // return by dragging returnAt backwards on its own.
+    const slot = pastWindowSeq++;
     await prisma.booking.update({
       where: { id: bookingId },
-      data: { pickupAt: new Date(past(6)), returnAt: new Date(past(1)) },
+      data: {
+        pickupAt: new Date(past(6 + slot * 10)),
+        returnAt: new Date(past(1 + slot * 10)),
+      },
     });
 
     return bookingId;
@@ -332,7 +371,9 @@ describe('vehicle return and charges (BRD 26, 30)', () => {
       .send({ vehicleId, pickupAt: future(300), returnAt: future(305) });
     const bookingId = created.body.data.booking.id as string;
 
-    for (const status of ['PAYMENT_PENDING', 'CONFIRMED', 'READY_FOR_PICKUP']) {
+    await payRental(bookingId);
+
+    for (const status of ['CONFIRMED', 'PAYMENT_PENDING', 'READY_FOR_PICKUP']) {
       await request(app)
         .patch(`${API}/bookings/${bookingId}/status`)
         .set('Authorization', `Bearer ${adminToken}`)
@@ -353,6 +394,146 @@ describe('vehicle return and charges (BRD 26, 30)', () => {
     expect(res.body.data.charges).toHaveLength(0);
     expect(res.body.data.chargeTotal).toBe('0.00');
   });
+  /*
+   * The "New damage" box on the return form has to reach the damage queue.
+   *
+   * It used to be saved on the inspection and nowhere else, so the whole
+   * assess-approve-charge workflow sat unreachable and the Damages screen was
+   * permanently empty no matter how many scratches staff wrote down.
+   */
+  it('raises a damage record from the damage noted at return', async () => {
+    const bookingId = await activeOverdueRental(41_000, 260);
+
+    const res = await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/return`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        mileage: 41_500,
+        fuelPercent: 100,
+        damageNotes: 'Deep scratch along the rear passenger door',
+      });
+    expect(res.status).toBe(200);
+
+    const damage = await prisma.damage.findFirstOrThrow({ where: { bookingId } });
+    expect(damage.description).toBe('Deep scratch along the rear passenger door');
+    expect(damage.vehicleId).toBe(vehicleId);
+    // Uncosted on purpose: the person handing the car back knows what they can
+    // see, not what the bodyshop will charge.
+    expect(damage.status).toBe('REPORTED');
+    expect(damage.estimatedAmount).toBeNull();
+  });
+
+  it('raises NO damage record when nothing was noted', async () => {
+    const bookingId = await activeOverdueRental(42_000, 280);
+
+    await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/return`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 42_100, fuelPercent: 100 });
+
+    expect(await prisma.damage.count({ where: { bookingId } })).toBe(0);
+  });
+});
+
+/*
+ * THE DASHBOARD WENT ON SAYING "3 CARS RENTED" AFTER EVERY RENTAL FINISHED.
+ *
+ * The status buttons move the booking row and nothing else. Walking one to
+ * COMPLETED by hand left the rental running, the return mileage unrecorded,
+ * the charges uncalculated and the car stuck on RENTED - so the fleet count
+ * drifted, and the car quietly stopped being bookable.
+ */
+describe('a booking cannot walk past the return', () => {
+  /*
+   * Its own car. Everything here is about what the FLEET says, and the shared
+   * test vehicle is left out on several open rentals by the tests above - so a
+   * reading taken from it would be measuring those, not this.
+   */
+  let ownCar: string;
+
+  beforeAll(async () => {
+    const category = await prisma.vehicleCategory.findFirstOrThrow({ where: { isActive: true } });
+    const car = await prisma.vehicle.create({
+      data: {
+        brand: 'Walk',
+        model: 'PastCar',
+        year: 2024,
+        registrationNumber: `WLK-${Date.now().toString().slice(-8)}`,
+        categoryId: category.id,
+        seats: 5,
+        transmission: 'AUTOMATIC',
+        fuelType: 'PETROL',
+        dailyPrice: '200.00',
+        securityDeposit: '1000.00',
+        currentMileage: 60_000,
+        status: 'AVAILABLE',
+      },
+    });
+    ownCar = car.id;
+    extraVehicleIds.push(ownCar);
+  });
+
+  it('REFUSES to mark a booking returned while the car is still out', async () => {
+    const { bookingId } = await readyBooking(future(300), future(305), ownCar);
+
+    await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/pickup`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 60_000, fuelPercent: 100, customerVerified: true });
+
+    for (const status of ['RETURN_PENDING', 'RETURNED']) {
+      const res = await request(app)
+        .patch(`${API}/bookings/${bookingId}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status });
+
+      if (status === 'RETURNED') {
+        expect(res.status).toBe(409);
+        expect(res.body.message).toContain('has not been checked in');
+      }
+    }
+
+    // Still out, still rented, and the booking has not been quietly finished.
+    const vehicle = await prisma.vehicle.findUniqueOrThrow({ where: { id: ownCar } });
+    expect(vehicle.status).toBe('RENTED');
+
+    // Cleanup: close it properly, the way staff are now made to.
+    await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/return`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 60_100, fuelPercent: 100 });
+  });
+
+  it('puts the car back on the fleet when the booking is finished', async () => {
+    const { bookingId } = await readyBooking(future(320), future(325), ownCar);
+
+    await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/pickup`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 61_000, fuelPercent: 100, customerVerified: true });
+
+    await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/return`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 61_200, fuelPercent: 100 });
+
+    // Checked in, so finishing the booking by hand is allowed. COMPLETED means
+    // the inspection is done, so the car comes back on sale with it - which is
+    // what has to leave the fleet count telling the truth.
+    const res = await request(app)
+      .patch(`${API}/bookings/${bookingId}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'COMPLETED' });
+
+    expect(res.status).toBe(200);
+
+    const vehicle = await prisma.vehicle.findUniqueOrThrow({ where: { id: ownCar } });
+    expect(vehicle.status).toBe('AVAILABLE');
+
+    const rental = await prisma.rental.findFirstOrThrow({ where: { bookingId } });
+    expect(rental.status).toBe('CLOSED');
+    expect(rental.returnedAt).not.toBeNull();
+  });
 });
 
 describe('extensions (BRD 23)', () => {
@@ -365,7 +546,9 @@ describe('extensions (BRD 23)', () => {
 
     const bookingId = created.body.data.booking.id as string;
 
-    for (const status of ['PAYMENT_PENDING', 'CONFIRMED', 'READY_FOR_PICKUP']) {
+    await payRental(bookingId);
+
+    for (const status of ['CONFIRMED', 'PAYMENT_PENDING', 'READY_FOR_PICKUP']) {
       await request(app)
         .patch(`${API}/bookings/${bookingId}/status`)
         .set('Authorization', `Bearer ${adminToken}`)
@@ -480,5 +663,128 @@ describe('extensions (BRD 23)', () => {
       .send({ approve: true });
 
     expect(res.status).toBe(403);
+  });
+});
+
+/**
+ * Recovering a booking whose handover was never recorded.
+ *
+ * The status API walks the booking lifecycle without creating a rental, so a
+ * booking can end up saying the car is out - or back - with nothing behind it.
+ * The counter then has nothing to return, inspect or close, which reads as
+ * "the inspection option is disabled".
+ *
+ * Its own vehicle, because these tests move an odometer a long way and the
+ * shared one is used by every test above.
+ */
+describe('late handover for a booking with no rental', () => {
+  let lateVehicleId: string;
+
+  beforeAll(async () => {
+    const category = await prisma.vehicleCategory.findFirst({ where: { isActive: true } });
+    const vehicle = await prisma.vehicle.create({
+      data: {
+        brand: 'Late',
+        model: 'TestCar',
+        year: 2024,
+        registrationNumber: `LTE-${Date.now().toString().slice(-8)}`,
+        categoryId: category!.id,
+        seats: 5,
+        transmission: 'AUTOMATIC',
+        fuelType: 'PETROL',
+        dailyPrice: '200.00',
+        securityDeposit: '1000.00',
+        currentMileage: 50_000,
+      },
+    });
+    lateVehicleId = vehicle.id;
+  });
+
+  afterAll(async () => {
+    const ids = (
+      await prisma.booking.findMany({ where: { vehicleId: lateVehicleId }, select: { id: true } })
+    ).map((b) => b.id);
+    if (ids.length > 0) {
+      await prisma.damagePhoto.deleteMany({ where: { damage: { bookingId: { in: ids } } } });
+      await prisma.damage.deleteMany({ where: { bookingId: { in: ids } } });
+      await prisma.vehicleInspection.deleteMany({ where: { rental: { bookingId: { in: ids } } } });
+      await prisma.rental.deleteMany({ where: { bookingId: { in: ids } } });
+      await prisma.additionalCharge.deleteMany({ where: { bookingId: { in: ids } } });
+      // These bookings carry a cleared payment now - handover refuses without
+      // one - and a payment row holds the booking down against deletion.
+      await prisma.depositTransaction.deleteMany({ where: { deposit: { bookingId: { in: ids } } } });
+      await prisma.securityDeposit.deleteMany({ where: { bookingId: { in: ids } } });
+      await prisma.refund.deleteMany({ where: { payment: { bookingId: { in: ids } } } });
+      await prisma.payment.deleteMany({ where: { bookingId: { in: ids } } });
+      await prisma.bookingStatusHistory.deleteMany({ where: { bookingId: { in: ids } } });
+      await prisma.booking.deleteMany({ where: { id: { in: ids } } });
+    }
+    await prisma.vehicle.deleteMany({ where: { id: lateVehicleId } });
+  });
+
+  /** Book, then walk it past pickup by hand exactly as the status dropdown does. */
+  async function strandedBooking(offset: number, upTo: string[]): Promise<string> {
+    const created = await request(app)
+      .post(`${API}/bookings`)
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ vehicleId: lateVehicleId, pickupAt: future(offset), returnAt: future(offset + 5) });
+
+    const bookingId = created.body.data.booking.id as string;
+
+    await payRental(bookingId);
+
+    for (const status of ['CONFIRMED', 'PAYMENT_PENDING', 'READY_FOR_PICKUP', ...upTo]) {
+      await request(app)
+        .patch(`${API}/bookings/${bookingId}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status });
+    }
+
+    return bookingId;
+  }
+
+  it('accepts the handover late, so the return and its inspection can run', async () => {
+    const bookingId = await strandedBooking(200, ['ACTIVE', 'RETURN_PENDING', 'RETURNED']);
+
+    const stuck = await request(app)
+      .get(`${API}/rentals/booking/${bookingId}`)
+      .set('Authorization', `Bearer ${staffToken}`);
+    expect(stuck.body.data.rental).toBeNull();
+
+    const handover = await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/pickup`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 50_000, fuelPercent: 100, customerVerified: true });
+
+    expect(handover.status).toBe(201);
+    expect(handover.body.data.rental.status).toBe('ACTIVE');
+
+    const returned = await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/return`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 50_200, fuelPercent: 90, needsCleaning: false });
+
+    expect(returned.status).toBe(200);
+    expect(returned.body.data.rental.status).toBe('RETURNED');
+    expect(
+      returned.body.data.rental.inspections.map((i: { type: string }) => i.type).sort(),
+    ).toEqual(['PICKUP', 'RETURN']);
+  });
+
+  it('REFUSES a late handover once the booking is COMPLETED', async () => {
+    const bookingId = await strandedBooking(220, [
+      'ACTIVE',
+      'RETURN_PENDING',
+      'RETURNED',
+      'COMPLETED',
+    ]);
+
+    const res = await request(app)
+      .post(`${API}/rentals/booking/${bookingId}/pickup`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ mileage: 51_000, fuelPercent: 100, customerVerified: true });
+
+    // Terminal. Quietly reopening finished business would be the worse bug.
+    expect(res.status).toBe(409);
   });
 });

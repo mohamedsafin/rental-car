@@ -53,6 +53,10 @@ export default function CustomersPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* A walk-in has no account until somebody makes one. */}
+          <Link to="/bookings/new" className="btn btn-primary btn-sm">
+            New booking
+          </Link>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"

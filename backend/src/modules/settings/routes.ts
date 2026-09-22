@@ -31,6 +31,7 @@ import { ApiError } from '../../utils/ApiError';
 import { prisma } from '../../config/prisma';
 import { auditService, requestContext } from '../audit/service';
 import { clearSettingsCache } from './service';
+import { readinessService } from './readiness';
 
 const keyParam = z.object({ key: z.string().min(1).max(80) });
 
@@ -51,6 +52,20 @@ router.use(authenticate, authorizeStaff);
  * Everything the client is allowed to see, grouped by category so the screen
  * can render sections without hardcoding which key belongs where.
  */
+/**
+ * GET /settings/readiness
+ *
+ * Which unset settings are actually switching something off, and what that
+ * costs. Staff-readable because the dashboard shows it; only an admin can act
+ * on it, which the PATCH below already enforces.
+ */
+router.get(
+  '/readiness',
+  asyncHandler(async (_req, res) => {
+    sendSuccess(res, await readinessService.check(), 'Setup status');
+  }),
+);
+
 router.get(
   '/',
   asyncHandler(async (_req, res) => {

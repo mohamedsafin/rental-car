@@ -22,6 +22,8 @@ export interface PublicUser {
   country: string | null;
   emailVerified: boolean;
   lastLoginAt: string | null;
+  /** Which branch a member of staff works at. Null for everyone else. */
+  branchId: string | null;
   createdAt: string;
 }
 
@@ -36,6 +38,8 @@ export function toPublicUser(user: User): PublicUser {
     country: user.country,
     emailVerified: user.emailVerifiedAt !== null,
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+    /// Null for owners and for customers, who belong to no branch.
+    branchId: user.branchId,
     createdAt: user.createdAt.toISOString(),
   };
 }

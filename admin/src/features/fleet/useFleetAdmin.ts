@@ -28,6 +28,45 @@ export function useAdminVehicles(filters: VehicleFilters) {
   });
 }
 
+/**
+ * Every vehicle, for a "pick a car" dropdown.
+ *
+ * The list endpoint caps `limit` at 60. Asking for 100 does not simply return
+ * a smaller page - it fails validation, the whole request 400s, and the
+ * dropdown renders with nothing in it but the placeholder. Three pages did
+ * exactly that, which is why this exists instead of a literal on each one.
+ *
+ * It also pages, so a fleet larger than 60 cars does not silently lose the
+ * tail - a fine recorded against the wrong car because the right one was not
+ * listed is worse than a slow dropdown.
+ */
+const OPTIONS_PAGE_SIZE = 60;
+
+export function useVehicleOptions() {
+  return useQuery<Vehicle[], NormalisedApiError>({
+    queryKey: ['vehicle-options'],
+    queryFn: async () => {
+      const query = (page: number) =>
+        getData<PaginatedData<Vehicle>>('/vehicles', {
+          page,
+          limit: OPTIONS_PAGE_SIZE,
+          includeUnpublished: true,
+        });
+
+      const first = await query(1);
+      const items = [...first.items];
+
+      for (let page = 2; page <= first.pagination.totalPages; page += 1) {
+        const next = await query(page);
+        items.push(...next.items);
+      }
+
+      return items;
+    },
+    staleTime: 60_000,
+  });
+}
+
 export function useAdminVehicle(id: string | undefined) {
   return useQuery<{ vehicle: Vehicle }, NormalisedApiError>({
     queryKey: ['admin-vehicle', id],
@@ -57,6 +96,26 @@ export function useAdminLocations() {
     queryKey: ['admin-locations'],
     queryFn: () => getData<{ locations: Location[] }>('/locations', { includeInactive: true }),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Soft-deletes a location. The backend refuses (409) while vehicles are still
+ * assigned to it, so the caller must surface the error rather than assume the
+ * row is gone.
+ */
+export function useDeleteLocation() {
+  const queryClient = useQueryClient();
+  return useMutation<null, NormalisedApiError, string>({
+    mutationFn: async (id) => {
+      await api.delete(`/locations/${id}`);
+      return null;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin-locations'] });
+      // The customer site's pickup dropdown reads this one.
+      void queryClient.invalidateQueries({ queryKey: ['locations'] });
+    },
   });
 }
 

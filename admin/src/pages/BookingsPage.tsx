@@ -6,7 +6,7 @@
  * for pickup, everything due back.
  */
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import BookingStatusBadge from '../components/BookingStatusBadge';
 import { useAdminBookings } from '../features/bookings/useBookingsAdmin';
 import type { BookingStatus } from '../types/booking';
@@ -34,14 +34,41 @@ function shortDate(iso: string): string {
 }
 
 export default function BookingsPage() {
+  /*
+   * The filter lives in the URL, not in component state.
+   *
+   * The dashboard's "needs attention" tiles link here with a filter already
+   * chosen - `?status=ACTIVE`, `?awaitingPayment=true`. This page used to hold
+   * the status in `useState`, so it ignored those links entirely: you clicked
+   * "1 booking awaiting payment", landed on all 60 bookings with "All
+   * statuses" selected, could not find the one, and concluded the dashboard
+   * was wrong. The count was right; the link was silently dropping the filter.
+   *
+   * Keeping it in the URL also makes a filtered list shareable and survives a
+   * refresh, which a status dropdown someone has just set really ought to.
+   */
+  const [params, setParams] = useSearchParams();
+  const status = (params.get('status') ?? '') as BookingStatus | '';
+  const awaitingPayment = params.get('awaitingPayment') === 'true';
+
   const [page, setPage] = useState(1);
-  const [status, setStatus] = useState<BookingStatus | ''>('');
   const [search, setSearch] = useState('');
+
+  function applyStatus(next: BookingStatus | '') {
+    const updated = new URLSearchParams(params);
+    if (next) updated.set('status', next);
+    else updated.delete('status');
+    // The two filters ask different questions; choosing one clears the other.
+    updated.delete('awaitingPayment');
+    setParams(updated, { replace: true });
+    setPage(1);
+  }
 
   const { data, isPending, isError, error } = useAdminBookings({
     page,
     limit: 20,
     status: status || undefined,
+    awaitingPayment: awaitingPayment || undefined,
     search: search || undefined,
   });
 
@@ -49,19 +76,41 @@ export default function BookingsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Bookings</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-slate-900">Bookings</h2>
+            {/*
+              The status dropdown cannot represent this filter, so without a
+              chip the list would be filtered while every visible control said
+              "All statuses" - a screen quietly disagreeing with itself, which
+              is the same complaint that started this.
+            */}
+            {awaitingPayment && (
+              <button
+                type="button"
+                onClick={() => applyStatus('')}
+                title="Clear this filter"
+                className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-200"
+              >
+                Awaiting payment
+                <span aria-hidden>&times;</span>
+                <span className="sr-only">Clear the awaiting payment filter</span>
+              </button>
+            )}
+          </div>
           <p className="text-sm text-slate-600">
             {data ? `${data.pagination.total} booking(s)` : 'Loading...'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* The counter's way in. Every other control here filters a list;
+              this is the only one that creates something. */}
+          <Link to="/bookings/new" className="btn btn-primary btn-sm">
+            New booking
+          </Link>
           <select
             value={status}
-            onChange={(e) => {
-              setStatus(e.target.value as BookingStatus | '');
-              setPage(1);
-            }}
+            onChange={(e) => applyStatus(e.target.value as BookingStatus | '')}
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
           >
             <option value="">All statuses</option>

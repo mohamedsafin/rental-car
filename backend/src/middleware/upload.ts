@@ -90,7 +90,7 @@ function imageFileFilter(
  * marks.
  */
 export function decodeUploadFilename(name: string): string {
-  // eslint-disable-next-line no-control-regex
+   
   if (!/[-ÿ]/.test(name)) return name;
 
   const decoded = Buffer.from(name, 'latin1').toString('utf8');

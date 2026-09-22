@@ -27,6 +27,9 @@ export const AuditAction = {
   TOKEN_REFRESHED: 'auth.token.refreshed',
   TOKEN_REUSE_DETECTED: 'auth.token.reuse_detected',
   PASSWORD_CHANGED: 'auth.password.changed',
+  PASSWORD_RESET_REQUESTED: 'auth.password.reset_requested',
+  PASSWORD_RESET_COMPLETED: 'auth.password.reset_completed',
+  EMAIL_VERIFIED: 'auth.email.verified',
   USER_CREATED: 'user.created',
   USER_UPDATED: 'user.updated',
   USER_ROLE_CHANGED: 'user.role.changed',
@@ -36,7 +39,15 @@ export const AuditAction = {
 export type AuditActionValue = (typeof AuditAction)[keyof typeof AuditAction];
 
 export interface AuditEntry {
-  action: AuditActionValue | string;
+  /*
+   * A known action, or any string.
+   *
+   * Written as a template literal rather than `AuditActionValue | string`,
+   * which TypeScript collapses to plain `string` - losing the autocomplete
+   * that was the whole point of the constant. This keeps the suggestions and
+   * still accepts a module's own one-off action name.
+   */
+  action: AuditActionValue | (string & {});
   actorId?: string | null;
   actorEmail?: string | null;
   actorRole?: Role | null;

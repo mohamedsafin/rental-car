@@ -16,14 +16,17 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { sendCreated, sendPaginated, sendSuccess } from '../../utils/apiResponse';
 import { requestContext } from '../audit/service';
 import { bookingsService, type BookingActor } from './service';
+import { bookingDriverRoutes } from './driversRoutes';
 import {
   bookingIdParamSchema,
   cancelBookingSchema,
   changeStatusSchema,
   createBookingSchema,
   listBookingsQuerySchema,
+  editBookingSchema,
   myBookingsQuerySchema,
   type ChangeStatusInput,
+  type EditBookingInput,
   type ListBookingsQuery,
   type MyBookingsQuery,
 } from './validation';
@@ -110,6 +113,27 @@ router.post(
   }),
 );
 
+/**
+ * PATCH /bookings/:id - change the dates, the car or the locations.
+ *
+ * Staff only, and only before the car has gone out. The price is recalculated
+ * from the pricing engine rather than taken from the request, so an edit
+ * cannot produce a figure the booking flow would have refused.
+ */
+router.patch(
+  '/:id',
+  authorizeStaff,
+  validate({ params: bookingIdParamSchema, body: editBookingSchema }),
+  asyncHandler(async (req, res) => {
+    const booking = await bookingsService.edit(
+      req.params.id as string,
+      req.body as EditBookingInput,
+      actorFrom(req),
+    );
+    sendSuccess(res, { booking }, `Booking ${booking.bookingNumber} updated`);
+  }),
+);
+
 /** PATCH /bookings/:id/status - staff move a booking through its lifecycle. */
 router.patch(
   '/:id/status',
@@ -126,5 +150,15 @@ router.patch(
     sendSuccess(res, { booking }, `Booking is now ${booking.statusLabel.toLowerCase()}`);
   }),
 );
+
+/*
+ * Additional drivers, mounted as a sub-router.
+ *
+ * Nested under the booking because that is what they belong to - a driver
+ * authorised on nothing is not a record worth having - and kept in its own
+ * file because permission to drive has nothing to do with the booking
+ * lifecycle this file is otherwise about.
+ */
+router.use('/:bookingId/drivers', bookingDriverRoutes);
 
 export const bookingRoutes = router;

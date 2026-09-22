@@ -202,6 +202,122 @@ export const availabilityService = {
   },
 
   /** Throw if unavailable. Used by the booking module before it writes. */
+
+  /**
+   * The whole fleet's commitments over a window, for the planning calendar.
+   *
+   * ==========================================================================
+   * WHY A CALENDAR AND NOT ANOTHER LIST
+   * ==========================================================================
+   * Every other screen answers "is this car free for these dates?" one car at
+   * a time. The question a rental desk actually has on the phone is the
+   * opposite: "somebody wants a 4x4 for the 12th to the 15th - what have I
+   * got?" - and answering it meant checking each car in turn and holding the
+   * answers in your head.
+   *
+   * So this returns every vehicle with its committed blocks in one response.
+   * Bookings and workshop time come back as the SAME kind of thing, because a
+   * car in the garage is exactly as unavailable as a car on hire, and a
+   * calendar that shows only one of them will cheerfully double-book the
+   * other.
+   *
+   * Cancelled bookings are excluded; a cancelled booking blocks nothing. So is
+   * anything returned or completed - the car is back.
+   */
+  async calendar(range: { from: Date; to: Date }) {
+    if (range.to <= range.from) {
+      throw ApiError.badRequest('The end of the window has to be after the start.');
+    }
+
+    const overlaps = { lt: range.to };
+    const ends = { gt: range.from };
+
+    const [vehicles, bookings, maintenance] = await Promise.all([
+      prisma.vehicle.findMany({
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          brand: true,
+          model: true,
+          year: true,
+          registrationNumber: true,
+          status: true,
+          category: { select: { name: true } },
+        },
+        orderBy: [{ brand: 'asc' }, { model: 'asc' }],
+      }),
+
+      prisma.booking.findMany({
+        where: {
+          pickupAt: overlaps,
+          returnAt: ends,
+          status: { notIn: ['CANCELLED', 'RETURNED', 'COMPLETED'] },
+        },
+        select: {
+          id: true,
+          bookingNumber: true,
+          vehicleId: true,
+          pickupAt: true,
+          returnAt: true,
+          status: true,
+          customer: { select: { fullName: true } },
+        },
+      }),
+
+      prisma.maintenanceRecord.findMany({
+        where: {
+          startsAt: overlaps,
+          endsAt: ends,
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+        },
+        select: {
+          id: true,
+          vehicleId: true,
+          startsAt: true,
+          endsAt: true,
+          description: true,
+        },
+      }),
+    ]);
+
+    const blocksFor = (vehicleId: string) => [
+      ...bookings
+        .filter((booking) => booking.vehicleId === vehicleId)
+        .map((booking) => ({
+          kind: 'BOOKING' as const,
+          id: booking.id,
+          from: booking.pickupAt.toISOString(),
+          to: booking.returnAt.toISOString(),
+          label: booking.bookingNumber,
+          detail: booking.customer.fullName,
+          status: booking.status,
+        })),
+      ...maintenance
+        .filter((record) => record.vehicleId === vehicleId)
+        .map((record) => ({
+          kind: 'MAINTENANCE' as const,
+          id: record.id,
+          from: record.startsAt.toISOString(),
+          to: record.endsAt.toISOString(),
+          label: 'Workshop',
+          detail: record.description,
+          status: 'MAINTENANCE',
+        })),
+    ];
+
+    return {
+      period: { from: range.from.toISOString(), to: range.to.toISOString() },
+      vehicles: vehicles.map((vehicle) => ({
+        id: vehicle.id,
+        name: vehicle.brand + ' ' + vehicle.model + ' (' + vehicle.year + ')',
+        registrationNumber: vehicle.registrationNumber,
+        category: vehicle.category.name,
+        status: vehicle.status,
+        blocks: blocksFor(vehicle.id).sort((a, b) => a.from.localeCompare(b.from)),
+      })),
+    };
+  },
+
   async assertVehicleAvailable(
     vehicleId: string,
     period: RentalPeriod,

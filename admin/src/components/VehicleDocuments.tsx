@@ -88,6 +88,11 @@ export default function VehicleDocuments({ vehicleId }: { vehicleId: string }) {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Bumped after a successful upload to remount the file input. Clearing the
+  // `file` state is not enough on its own: <input type="file"> is uncontrolled,
+  // so it keeps displaying the previous file name and the next submit then
+  // reports "Choose a file first." over what looks like a chosen file.
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const upload = useMutation<VehicleDocument, NormalisedApiError, FormData>({
     mutationFn: async (formData) => {
@@ -101,6 +106,7 @@ export default function VehicleDocuments({ vehicleId }: { vehicleId: string }) {
       void queryClient.invalidateQueries({ queryKey: ['vehicle-documents', vehicleId] });
       void queryClient.invalidateQueries({ queryKey: ['expiring'] });
       setFile(null);
+      setFileInputKey((key) => key + 1);
       setDocumentNumber('');
       setExpiryDate('');
     },
@@ -181,6 +187,7 @@ export default function VehicleDocuments({ vehicleId }: { vehicleId: string }) {
             File
           </label>
           <input
+            key={fileInputKey}
             id="doc-file"
             type="file"
             accept="image/jpeg,image/png,image/webp,application/pdf"

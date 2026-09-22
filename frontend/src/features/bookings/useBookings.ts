@@ -37,6 +37,8 @@ export function useCreateBooking() {
       pickupLocationId?: string;
       dropoffLocationId?: string;
       services?: { serviceId: string; quantity: number }[];
+      /** UPFRONT pays once; MONTHLY bills one month at a time. */
+      billingCycle?: 'UPFRONT' | 'MONTHLY';
       customerNotes?: string;
       /** A CODE. Re-validated server-side at checkout. */
       couponCode?: string;

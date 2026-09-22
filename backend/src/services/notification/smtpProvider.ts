@@ -33,15 +33,34 @@ import type {
 } from './types';
 
 /**
+ * The settings this driver needs, as a shape rather than a direct read of the
+ * process environment.
+ *
+ * Passed in (defaulting to the real env) so the refusal below can be tested
+ * for what it is - a rule about missing configuration - instead of being
+ * tested against whatever happens to be in the developer's own `.env`. A test
+ * that passes or fails depending on whether the machine running it has a mail
+ * password is not testing this code.
+ */
+export interface SmtpSettings {
+  SMTP_HOST?: string;
+  SMTP_PORT: number;
+  SMTP_USER?: string;
+  SMTP_PASSWORD?: string;
+  NOTIFICATION_FROM_EMAIL?: string;
+  NOTIFICATION_FROM_NAME?: string;
+}
+
+/**
  * Everything SMTP needs, checked in one place so the error names all of the
  * missing pieces at once rather than one per restart.
  */
-function readConfig() {
+function readConfig(settings: SmtpSettings) {
   const missing: string[] = [];
-  if (!env.SMTP_HOST) missing.push('SMTP_HOST');
-  if (!env.SMTP_USER) missing.push('SMTP_USER');
-  if (!env.SMTP_PASSWORD) missing.push('SMTP_PASSWORD');
-  if (!env.NOTIFICATION_FROM_EMAIL) missing.push('NOTIFICATION_FROM_EMAIL');
+  if (!settings.SMTP_HOST) missing.push('SMTP_HOST');
+  if (!settings.SMTP_USER) missing.push('SMTP_USER');
+  if (!settings.SMTP_PASSWORD) missing.push('SMTP_PASSWORD');
+  if (!settings.NOTIFICATION_FROM_EMAIL) missing.push('NOTIFICATION_FROM_EMAIL');
 
   if (missing.length > 0) {
     throw new Error(
@@ -51,12 +70,12 @@ function readConfig() {
   }
 
   return {
-    host: env.SMTP_HOST!,
-    port: env.SMTP_PORT,
-    user: env.SMTP_USER!,
-    password: env.SMTP_PASSWORD!,
-    from: env.NOTIFICATION_FROM_EMAIL!,
-    fromName: env.NOTIFICATION_FROM_NAME,
+    host: settings.SMTP_HOST!,
+    port: settings.SMTP_PORT,
+    user: settings.SMTP_USER!,
+    password: settings.SMTP_PASSWORD!,
+    from: settings.NOTIFICATION_FROM_EMAIL!,
+    fromName: settings.NOTIFICATION_FROM_NAME,
   };
 }
 
@@ -66,8 +85,9 @@ export class SmtpNotificationProvider implements NotificationProvider {
   private readonly transporter: Transporter;
   private readonly from: string;
 
-  constructor() {
-    const config = readConfig();
+  /** Defaults to the real environment; production calls it with no argument. */
+  constructor(settings: SmtpSettings = env) {
+    const config = readConfig(settings);
 
     this.from = config.fromName ? `"${config.fromName}" <${config.from}>` : config.from;
 

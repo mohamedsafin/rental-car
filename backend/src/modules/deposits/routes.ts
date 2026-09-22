@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate';
-import { authorizeStaff } from '../../middleware/authorize';
+import { authorizeFinance } from '../../middleware/authorize';
 import { getValidatedQuery, validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { sendPaginated, sendSuccess } from '../../utils/apiResponse';
@@ -15,6 +15,7 @@ import { ApiError } from '../../utils/ApiError';
 import { prisma } from '../../config/prisma';
 import { requestContext } from '../audit/service';
 import { depositsService, type DepositActor } from './service';
+import { isBackOffice } from '../../modules/auth/roles';
 
 const bookingIdParam = z.object({ bookingId: z.string().uuid('Invalid booking id') });
 
@@ -39,6 +40,17 @@ const deductSchema = z.object({
 const releaseSchema = z.object({
   amount: money.optional(),
   reason: z.string().max(500).trim().optional(),
+  /*
+   * "I know there are unrecovered charges, release it anyway."
+   *
+   * The server refuses a release while fines or tolls are still outstanding,
+   * because that is the exact moment the money becomes uncollectable - the
+   * customer is at the counter now and gone in five minutes. But it is a
+   * refusal, not a prohibition: a manager may have a reason, and a rule with
+   * no override gets worked around by deducting nothing and releasing in two
+   * steps. So the override exists, and it is recorded.
+   */
+  releaseAnyway: z.boolean().default(false),
 });
 
 const listSchema = z.object({
@@ -72,8 +84,8 @@ router.get(
       select: { customerId: true },
     });
 
-    const isBackOffice = req.user!.role === 'ADMIN' || req.user!.role === 'STAFF';
-    if (!booking || (!isBackOffice && booking.customerId !== req.user!.id)) {
+    const backOffice = isBackOffice(req.user!.role);
+    if (!booking || (!backOffice && booking.customerId !== req.user!.id)) {
       throw ApiError.notFound('Booking not found');
     }
 
@@ -86,7 +98,7 @@ router.get(
 
 router.get(
   '/',
-  authorizeStaff,
+  authorizeFinance,
   validate({ query: listSchema }),
   asyncHandler(async (req, res) => {
     const query = getValidatedQuery<z.infer<typeof listSchema>>(req);
@@ -98,7 +110,7 @@ router.get(
 /** POST /deposits/booking/:bookingId/deduct - BRD 20. */
 router.post(
   '/booking/:bookingId/deduct',
-  authorizeStaff,
+  authorizeFinance,
   validate({ params: bookingIdParam, body: deductSchema }),
   asyncHandler(async (req, res) => {
     const deposit = await depositsService.deduct(
@@ -113,7 +125,7 @@ router.post(
 /** POST /deposits/booking/:bookingId/release - return the balance. */
 router.post(
   '/booking/:bookingId/release',
-  authorizeStaff,
+  authorizeFinance,
   validate({ params: bookingIdParam, body: releaseSchema }),
   asyncHandler(async (req, res) => {
     const deposit = await depositsService.release(

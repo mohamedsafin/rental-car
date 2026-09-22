@@ -16,7 +16,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate';
-import { authorizeStaff, authorizeAdmin } from '../../middleware/authorize';
+import { authorizeOperations, authorizeAdmin } from '../../middleware/authorize';
 import { getValidatedQuery, validate } from '../../middleware/validate';
 import { uploadVehicleImages } from '../../middleware/upload';
 import { asyncHandler } from '../../utils/asyncHandler';
@@ -65,7 +65,7 @@ function actorFrom(req: Parameters<typeof requestContext>[0]): FleetActor {
 
 const router = Router();
 
-router.use(authenticate, authorizeStaff);
+router.use(authenticate, authorizeOperations);
 
 /** GET /damages - the damage queue. */
 router.get(

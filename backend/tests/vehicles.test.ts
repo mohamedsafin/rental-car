@@ -4,6 +4,7 @@
  * Phase 3 acceptance: an admin can manage the fleet, a customer can browse it,
  * and neither can do the other's job.
  */
+import zlib from 'node:zlib';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app';
@@ -245,7 +246,8 @@ describe('image upload validation', () => {
     ihdr[8] = 8;
     ihdr[9] = 2;
 
-    const zlib = require('node:zlib') as typeof import('node:zlib');
+    // Imported at the top rather than required inline: `require` in an ES
+    // module is a footgun waiting for someone to move this file.
     const raw = Buffer.concat([
       Buffer.from([0x00, 0x1e, 0x40, 0xaf, 0x1e, 0x40, 0xaf]),
       Buffer.from([0x00, 0x1e, 0x40, 0xaf, 0x1e, 0x40, 0xaf]),

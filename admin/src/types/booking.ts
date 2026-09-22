@@ -55,6 +55,48 @@ export interface Booking {
 
   /** How this booking is being paid for. Fixed at checkout. */
   paymentMethod: 'ONLINE' | 'CASH_ON_PICKUP';
+  /**
+   * Whether a rental payment has actually cleared.
+   *
+   * No status implies this any more - CONFIRMED means the documents passed,
+   * not that money arrived - so anything gated on payment must read this.
+   */
+  rentalPaid: boolean;
+
+  /** UPFRONT, or MONTHLY for a long-term rental billed month by month. */
+  billingCycle: 'UPFRONT' | 'MONTHLY';
+  termMonths: number | null;
+  /** One row per month of the term. Empty on an upfront booking. */
+  instalments: {
+    id: string;
+    sequence: number;
+    periodStart: string;
+    periodEnd: string;
+    dueAt: string;
+    /** The rent. Fixed for the whole term. */
+    amount: string;
+    /** Salik, fines and anything else billed with this month. Usually '0.00'. */
+    extrasAmount: string;
+    /** Rent + extras: what paying this month will actually charge. */
+    totalDue: string;
+    currency: string;
+    status: string;
+    paidAt: string | null;
+  }[];
+
+
+  /** Fines, Salik, fuel, cleaning, late return, damage. */
+  additionalCharges: {
+    id: string;
+    type: string;
+    amount: string;
+    currency: string;
+    description: string | null;
+    status: string;
+    at: string;
+    /** Set when it was billed with a month of a long-term rental. */
+    instalmentId: string | null;
+  }[];
   locations: {
     pickup: { id: string; name: string } | null;
     dropoff: { id: string; name: string } | null;
@@ -106,8 +148,8 @@ export const BOOKING_STATUS_STYLE: Record<BookingStatus, string> = {
 export const BOOKING_STATUS_HELP: Record<BookingStatus, string> = {
   PENDING: 'We have received your booking.',
   DOCUMENT_VERIFICATION: 'We are checking your documents. Upload anything still outstanding.',
-  PAYMENT_PENDING: 'Your documents are approved. Payment is the next step.',
-  CONFIRMED: 'Your booking is confirmed. We are preparing your vehicle.',
+  CONFIRMED: 'Documents approved and the car is held. Payment is the next step.',
+  PAYMENT_PENDING: 'Waiting for the payment to clear.',
   READY_FOR_PICKUP: 'Your vehicle is ready for collection.',
   ACTIVE: 'Your rental is under way.',
   EXTENSION_REQUESTED: 'We are reviewing your extension request.',

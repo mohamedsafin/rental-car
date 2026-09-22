@@ -39,7 +39,15 @@ const envSchema = z.object({
   // CORS
   CORS_ORIGINS: csv,
 
-  // Auth — validated now so Phase 2 cannot boot with placeholder-free config.
+  /*
+   * Auth secrets.
+   *
+   * The placeholders are a DEVELOPMENT convenience and nothing more. They used
+   * to be accepted anywhere, including production, and `min(1)` was satisfied
+   * by the placeholder itself - so a deployment that simply forgot to set them
+   * signed its admin tokens with a string published in this repository. The
+   * `superRefine` below refuses to boot on that in production.
+   */
   JWT_ACCESS_SECRET: z.string().min(1).default('change-me-access-secret'),
   JWT_REFRESH_SECRET: z.string().min(1).default('change-me-refresh-secret'),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
@@ -83,6 +91,20 @@ const envSchema = z.object({
   // development driver that composes and records messages without sending
   // them, and refuses to run in production.
   NOTIFICATION_DRIVER: z.enum(['log', 'smtp', 'sendgrid', 'twilio']).default('log'),
+
+  /*
+   * Whether this process runs the background jobs (reminders, expiry warnings,
+   * releasing abandoned booking holds).
+   *
+   * ON by default, because the jobs existing while nothing runs them is the
+   * state this flag was added to end. Turn it OFF on any instance that must
+   * not send mail - a second API replica, or a one-off container opened to run
+   * a migration.
+   */
+  SCHEDULER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
   // Empty is treated as "not set". A .env with `NOTIFICATION_FROM_EMAIL=`
   // sitting there waiting to be filled in must not stop the server booting.
   NOTIFICATION_FROM_EMAIL: z.preprocess(
@@ -114,6 +136,10 @@ const envSchema = z.object({
 
   // Links in outbound messages point back at the customer site, not the API.
   PUBLIC_SITE_URL: z.string().url().default('http://localhost:5173'),
+  // ...except for staff, whose reset links have to land on the admin app. A
+  // customer-site link would ask a staff member to sign in somewhere their
+  // account is not the point.
+  ADMIN_SITE_URL: z.string().url().default('http://localhost:5174'),
 
   // How many reverse proxies sit in front of us. 0 = none, so X-Forwarded-For
   // is ignored and req.ip is the real socket address. Set it to the actual hop
@@ -124,7 +150,73 @@ const envSchema = z.object({
   STORAGE_DRIVER: z.enum(['local', 's3', 'cloudinary']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./uploads'),
   MAX_UPLOAD_SIZE_MB: z.coerce.number().int().positive().default(10),
-});
+})
+  /*
+   * Production refuses placeholders and weak secrets.
+   *
+   * Checked here rather than at the field, because a field cannot see
+   * NODE_ENV. Everything below is a configuration mistake that is silent until
+   * it is exploited, which is the worst way to find out:
+   *
+   *   - a signing secret still set to its published placeholder lets anyone
+   *     who has read this repository mint themselves an admin token,
+   *   - a short secret is brute-forcible,
+   *   - the two secrets being equal means a refresh token is accepted wherever
+   *     an access token is,
+   *   - a session cookie sent without `secure` travels in the clear.
+   */
+  .superRefine((config, ctx) => {
+    if (config.NODE_ENV !== 'production') return;
+
+    const secrets: [keyof typeof config, string][] = [
+      ['JWT_ACCESS_SECRET', config.JWT_ACCESS_SECRET],
+      ['JWT_REFRESH_SECRET', config.JWT_REFRESH_SECRET],
+      ['PAYMENT_WEBHOOK_SECRET', config.PAYMENT_WEBHOOK_SECRET ?? ''],
+    ];
+
+    for (const [name, value] of secrets) {
+      if (!value) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [name],
+          message: 'must be set in production',
+        });
+        continue;
+      }
+      if (value.startsWith('change-me')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [name],
+          message:
+            'is still the development placeholder. Generate one, e.g. `openssl rand -base64 48`.',
+        });
+      }
+      if (value.length < 32) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [name],
+          message: `must be at least 32 characters in production (currently ${value.length}).`,
+        });
+      }
+    }
+
+    if (config.JWT_ACCESS_SECRET === config.JWT_REFRESH_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_REFRESH_SECRET'],
+        message:
+          'must differ from JWT_ACCESS_SECRET, or a refresh token is accepted as an access token.',
+      });
+    }
+
+    if (!config.COOKIE_SECURE) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['COOKIE_SECURE'],
+        message: 'must be true in production: the refresh cookie would travel unencrypted.',
+      });
+    }
+  });
 
 const parsed = envSchema.safeParse(process.env);
 
@@ -135,7 +227,7 @@ if (!parsed.success) {
   const issues = parsed.error.issues
     .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)
     .join('\n');
-  // eslint-disable-next-line no-console
+   
   console.error(`\nInvalid environment configuration:\n${issues}\n`);
   process.exit(1);
 }

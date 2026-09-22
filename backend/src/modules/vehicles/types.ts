@@ -46,7 +46,13 @@ export interface PublicVehicle {
   year: number;
   variant: string | null;
   name: string;
+  /*
+   * Null for the public site. A plate and a chassis number identify a specific
+   * car to anyone who wants to look it up, and a browsing customer has no use
+   * for either - they are shown to staff only.
+   */
   registrationNumber: string | null;
+  vin: string | null;
   category: { id: string; name: string; slug: string };
   location: { id: string; name: string } | null;
   seats: number;
@@ -63,6 +69,17 @@ export interface PublicVehicle {
   };
   mileage: { limitPerDay: number | null; extraCharge: string | null };
   status: string;
+  /// Odometer. Staff only - see `registrationNumber`.
+  currentMileage: number | null;
+  /*
+   * What the car cost and what it is worth now. Staff only, and null where
+   * nobody recorded it, which is different from zero.
+   */
+  purchase: {
+    price: string | null;
+    date: string | null;
+    currentValue: string | null;
+  } | null;
   isFeatured: boolean;
   isPublished: boolean;
   description: string | null;
@@ -111,6 +128,7 @@ export async function toPublicVehicle(
     variant: vehicle.variant,
     name,
     registrationNumber: includePrivate ? vehicle.registrationNumber : null,
+    vin: includePrivate ? vehicle.vin : null,
     category: {
       id: vehicle.category.id,
       name: vehicle.category.name,
@@ -135,6 +153,14 @@ export async function toPublicVehicle(
       extraCharge: money(vehicle.extraMileageCharge),
     },
     status: vehicle.status,
+    currentMileage: includePrivate ? vehicle.currentMileage : null,
+    purchase: includePrivate
+      ? {
+          price: money(vehicle.purchasePrice),
+          date: vehicle.purchaseDate?.toISOString().slice(0, 10) ?? null,
+          currentValue: money(vehicle.currentValue),
+        }
+      : null,
     isFeatured: vehicle.isFeatured,
     isPublished: vehicle.isPublished,
     description: vehicle.description,

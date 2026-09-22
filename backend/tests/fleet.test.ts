@@ -67,6 +67,16 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Bookings created by the recovery tests, plus everything hanging off them.
+  const bookingIds = (
+    await prisma.booking.findMany({ where: { vehicleId }, select: { id: true } })
+  ).map((booking) => booking.id);
+  await prisma.depositTransaction.deleteMany({
+    where: { deposit: { bookingId: { in: bookingIds } } },
+  });
+  await prisma.securityDeposit.deleteMany({ where: { bookingId: { in: bookingIds } } });
+  await prisma.additionalCharge.deleteMany({ where: { bookingId: { in: bookingIds } } });
+
   await prisma.damagePhoto.deleteMany({ where: { damage: { vehicleId } } });
   await prisma.damage.deleteMany({ where: { vehicleId } });
   await prisma.trafficFine.deleteMany({ where: { vehicleId } });
@@ -74,6 +84,9 @@ afterAll(async () => {
   await prisma.maintenanceRecord.deleteMany({ where: { vehicleId } });
   await prisma.insuranceRecord.deleteMany({ where: { vehicleId } });
   await prisma.vehicleDocument.deleteMany({ where: { vehicleId } });
+  // Bookings hold an FK to the vehicle, so they go before it.
+  await prisma.bookingStatusHistory.deleteMany({ where: { bookingId: { in: bookingIds } } });
+  await prisma.booking.deleteMany({ where: { id: { in: bookingIds } } });
   await prisma.vehicle.deleteMany({ where: { id: vehicleId } });
   await cleanupUsers(createdEmails);
   await disconnectPrisma();
@@ -233,6 +246,216 @@ describe('Traffic fines and tolls (BRD 38)', () => {
     // Nobody to bill. Guessing which customer was driving is exactly the
     // mistake this refusal prevents.
     expect(response.status).toBe(400);
+  });
+});
+
+/**
+ * Recovering a fine has to actually take the money.
+ *
+ * Before this, "recover" only raised a PENDING charge and the deduction was a
+ * separate action on another page - so a recovered fine could sit unpaid while
+ * the deposit it should have come from was released in full.
+ */
+describe('Recovering fines and tolls against the deposit', () => {
+  let bookingSeq = 0;
+
+  /**
+   * A rental at the counter: car back, deposit still held, charges being
+   * settled. RETURNED rather than COMPLETED on purpose - completing a booking
+   * closes it, and a closed rental now refuses further charges, which is the
+   * whole point of settling them at this step.
+   */
+  async function rentalWithDeposit(deposit: string) {
+    bookingSeq += 1;
+    const customer = await prisma.user.findFirstOrThrow({
+      where: { email: createdEmails[2] },
+    });
+
+    const booking = await prisma.booking.create({
+      data: {
+        bookingNumber: `FLT-${Date.now()}-${bookingSeq}`,
+        vehicleId,
+        customerId: customer.id,
+        pickupAt: day(-6),
+        returnAt: day(-1),
+        status: 'RETURNED',
+        rentalDays: 5,
+        vehicleSubtotal: '1000.00',
+        totalAmount: '1000.00',
+        securityDeposit: deposit,
+      },
+    });
+
+    const held = await prisma.securityDeposit.create({
+      data: { bookingId: booking.id, amount: deposit, status: 'HELD', heldAt: new Date() },
+    });
+    await prisma.depositTransaction.create({
+      data: { depositId: held.id, type: 'HOLD', amount: deposit, reason: 'Test hold' },
+    });
+
+    return booking.id;
+  }
+
+  /*
+   * Every crossing needs its OWN timestamp.
+   *
+   * One car cannot pass one gate twice in the same millisecond, and the
+   * service now rejects a repeat of (vehicle, instant, gate) as the duplicate
+   * it would be in real life. This used to stamp every toll with the same
+   * `day(-3)`, which only worked because nothing checked.
+   */
+  let crossingSeq = 0;
+
+  /** Record a toll inside that rental's window so it attributes itself. */
+  async function tollOn(bookingId: string, amount: string, serviceFee = '0.00') {
+    const crossedAt = new Date(new Date(day(-3)).getTime() + crossingSeq++ * 60_000).toISOString();
+
+    const response = await request(app)
+      .post(`${API}/fleet/tolls`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({ vehicleId, crossedAt, gate: 'Al Barsha', amount, serviceFee });
+
+    expect(response.status).toBe(201);
+    const id = response.body.data.toll.id as string;
+    // Attribution is by timestamp, but several test rentals overlap - pin it.
+    await prisma.tollCharge.update({ where: { id }, data: { bookingId, status: 'ASSIGNED' } });
+    return id;
+  }
+
+  async function depositOf(bookingId: string) {
+    const res = await request(app)
+      .get(`${API}/deposits/booking/${bookingId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    return res.body.data.deposit;
+  }
+
+  it('takes the whole charge from the deposit in one action', async () => {
+    const bookingId = await rentalWithDeposit('1000.00');
+    const tollId = await tollOn(bookingId, '120.00', '10.00');
+
+    const response = await request(app)
+      .post(`${API}/fleet/tolls/${tollId}/recover`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send();
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.recoveredFromDeposit).toBe('130.00');
+    expect(response.body.data.leftToInvoice).toBe('0.00');
+
+    const deposit = await depositOf(bookingId);
+    expect(deposit.deducted).toBe('130.00');
+    expect(deposit.balance).toBe('870.00');
+  });
+
+  it('records the deduction as TOLL, not as a nameless "other"', async () => {
+    const bookingId = await rentalWithDeposit('1000.00');
+    const tollId = await tollOn(bookingId, '30.00');
+
+    await request(app)
+      .post(`${API}/fleet/tolls/${tollId}/recover`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send();
+
+    const deposit = await depositOf(bookingId);
+    const deduction = deposit.transactions.find(
+      (entry: { type: string }) => entry.type === 'DEDUCTION',
+    );
+    // The ledger is what a customer is shown in a dispute. "Other" is not an
+    // answer to "what did you keep my money for".
+    expect(deduction.category).toBe('TOLL');
+  });
+
+  it('takes what the deposit can cover and leaves the rest to invoice', async () => {
+    const bookingId = await rentalWithDeposit('100.00');
+    const tollId = await tollOn(bookingId, '250.00', '20.00');
+
+    const response = await request(app)
+      .post(`${API}/fleet/tolls/${tollId}/recover`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send();
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.recoveredFromDeposit).toBe('100.00');
+    expect(response.body.data.leftToInvoice).toBe('170.00');
+
+    const deposit = await depositOf(bookingId);
+    expect(deposit.balance).toBe('0.00');
+
+    // Two rows, each with an honest status: one settled, one still owed.
+    const charges = await prisma.additionalCharge.findMany({ where: { bookingId } });
+    expect(charges).toHaveLength(2);
+    expect(charges.find((c) => c.status === 'SETTLED_FROM_DEPOSIT')?.amount.toFixed(2)).toBe(
+      '100.00',
+    );
+    expect(charges.find((c) => c.status === 'PENDING')?.amount.toFixed(2)).toBe('170.00');
+  });
+
+  it('never pushes the deposit negative', async () => {
+    const bookingId = await rentalWithDeposit('50.00');
+    const tollId = await tollOn(bookingId, '400.00');
+
+    await request(app)
+      .post(`${API}/fleet/tolls/${tollId}/recover`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send();
+
+    const deposit = await depositOf(bookingId);
+    expect(Number(deposit.balance)).toBe(0);
+    expect(Number(deposit.balance)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('still charges the customer when no deposit is held', async () => {
+    bookingSeq += 1;
+    const customer = await prisma.user.findFirstOrThrow({ where: { email: createdEmails[2] } });
+    const booking = await prisma.booking.create({
+      data: {
+        bookingNumber: `FLT-ND-${Date.now()}-${bookingSeq}`,
+        vehicleId,
+        customerId: customer.id,
+        pickupAt: day(-6),
+        returnAt: day(-1),
+        status: 'RETURNED',
+        rentalDays: 5,
+        vehicleSubtotal: '1000.00',
+        totalAmount: '1000.00',
+      },
+    });
+    const tollId = await tollOn(booking.id, '75.00');
+
+    const response = await request(app)
+      .post(`${API}/fleet/tolls/${tollId}/recover`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send();
+
+    // No deposit is not a reason to drop the charge - it becomes invoiceable.
+    expect(response.status).toBe(201);
+    expect(response.body.data.recoveredFromDeposit).toBe('0.00');
+    expect(response.body.data.leftToInvoice).toBe('75.00');
+
+    const charges = await prisma.additionalCharge.findMany({ where: { bookingId: booking.id } });
+    expect(charges).toHaveLength(1);
+    expect(charges[0]?.status).toBe('PENDING');
+  });
+
+  it('refuses to recover the same toll twice', async () => {
+    const bookingId = await rentalWithDeposit('1000.00');
+    const tollId = await tollOn(bookingId, '40.00');
+
+    await request(app)
+      .post(`${API}/fleet/tolls/${tollId}/recover`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send();
+
+    const second = await request(app)
+      .post(`${API}/fleet/tolls/${tollId}/recover`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send();
+
+    expect(second.status).toBe(409);
+
+    // And the deposit moved exactly once.
+    const deposit = await depositOf(bookingId);
+    expect(deposit.deducted).toBe('40.00');
   });
 });
 

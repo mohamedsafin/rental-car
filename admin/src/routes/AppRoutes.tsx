@@ -13,7 +13,10 @@ import { Route, Routes } from 'react-router-dom';
 import AdminLayout from '../layouts/AdminLayout';
 import ProtectedRoute from '../components/ProtectedRoute';
 import LoginPage from '../pages/LoginPage';
+import PasswordRecoveryPage from '../pages/PasswordRecoveryPage';
 import DashboardPage from '../pages/DashboardPage';
+import PaymentsPage from '../pages/PaymentsPage';
+import DepositsPage from '../pages/DepositsPage';
 import UsersPage from '../pages/UsersPage';
 import VehiclesPage from '../pages/VehiclesPage';
 import VehicleFormPage from '../pages/VehicleFormPage';
@@ -21,10 +24,13 @@ import LocationsPage from '../pages/LocationsPage';
 import PricingPage from '../pages/PricingPage';
 import CustomersPage from '../pages/CustomersPage';
 import BookingsPage from '../pages/BookingsPage';
+import NewBookingPage from '../pages/NewBookingPage';
+import CalendarPage from '../pages/CalendarPage';
 import AdminBookingDetailPage from '../pages/BookingDetailPage';
 import CustomerDetailPage from '../pages/CustomerDetailPage';
 import MaintenancePage from '../pages/MaintenancePage';
 import DamagesPage from '../pages/DamagesPage';
+import AccidentsPage from '../pages/AccidentsPage';
 import FinesPage from '../pages/FinesPage';
 import ExpiryPage from '../pages/ExpiryPage';
 import ReportsPage from '../pages/ReportsPage';
@@ -44,6 +50,14 @@ export default function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/*
+        Public, and they have to be: somebody who cannot sign in is exactly
+        who needs them, and an emailed link opens in a browser with no session.
+        One component serves both halves - which it shows depends on whether
+        the URL carries a token.
+      */}
+      <Route path="/forgot-password" element={<PasswordRecoveryPage />} />
+      <Route path="/reset-password" element={<PasswordRecoveryPage />} />
 
       <Route element={<ProtectedRoute allowedRoles={['ADMIN', 'STAFF']} />}>
         <Route element={<AdminLayout />}>
@@ -54,13 +68,18 @@ export default function AppRoutes() {
           <Route path="/locations" element={<LocationsPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/bookings" element={<BookingsPage />} />
+          <Route path="/bookings/new" element={<NewBookingPage />} />
+          <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/bookings/:id" element={<AdminBookingDetailPage />} />
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/customers/:id" element={<CustomerDetailPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/maintenance" element={<MaintenancePage />} />
           <Route path="/insurance" element={<ExpiryPage />} />
+          <Route path="/payments" element={<PaymentsPage />} />
+          <Route path="/deposits" element={<DepositsPage />} />
           <Route path="/damages" element={<DamagesPage />} />
+          <Route path="/accidents" element={<AccidentsPage />} />
           <Route path="/fines" element={<FinesPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/coupons" element={<CouponsPage />} />

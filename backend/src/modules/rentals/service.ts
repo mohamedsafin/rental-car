@@ -12,17 +12,18 @@
  * updated: "the scratch was already there" has to be an answerable question.
  */
 import { Prisma } from '@prisma/client';
+import type { Role } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { logger } from '../../config/logger';
 import { ApiError } from '../../utils/ApiError';
 import { auditService } from '../audit/service';
-import { SettingKey, settingsService } from '../settings/service';
+import { settingsService } from '../settings/service';
 import { calculateReturnCharges, type ChargePolicy } from './chargeCalculator';
 
 export interface RentalActor {
   id: string;
   email: string;
-  role: 'CUSTOMER' | 'ADMIN' | 'STAFF';
+  role: Role;
   ipAddress?: string;
   userAgent?: string;
 }
@@ -51,7 +52,19 @@ async function loadChargePolicy(): Promise<ChargePolicy> {
   };
 }
 
-export interface PickupInput {
+/**
+ * The customer's own acknowledgement of the car's condition.
+ *
+ * Separate from `customerVerified`, which is staff confirming an identity.
+ * This is the hirer agreeing the car looked like this - the half of the record
+ * that decides a damage dispute, and the half that was missing.
+ */
+export interface ConditionSignOff {
+  customerSignedName?: string;
+  customerDeclined?: boolean;
+}
+
+export interface PickupInput extends ConditionSignOff {
   mileage: number;
   fuelPercent: number;
   customerVerified: boolean;
@@ -60,7 +73,7 @@ export interface PickupInput {
   accessories?: string[];
 }
 
-export interface ReturnInput {
+export interface ReturnInput extends ConditionSignOff {
   mileage: number;
   fuelPercent: number;
   conditionNotes?: string;
@@ -68,6 +81,20 @@ export interface ReturnInput {
   cleanliness?: string;
   needsCleaning?: boolean;
   missingAccessories?: string[];
+}
+
+/**
+ * The three sign-off columns, from what the form sent.
+ *
+ * Written once and used by both inspections so a change to how a signature is
+ * recorded cannot apply at handover and be forgotten at return.
+ */
+function signOffFields(input: ConditionSignOff, now: Date) {
+  return {
+    customerSignedName: input.customerSignedName ?? null,
+    customerSignedAt: input.customerSignedName ? now : null,
+    customerDeclinedAt: input.customerDeclined ? now : null,
+  };
 }
 
 export const rentalsService = {
@@ -95,7 +122,42 @@ export const rentalsService = {
       throw ApiError.conflict('This booking has already been handed over');
     }
 
-    if (booking.status !== 'READY_FOR_PICKUP' && booking.status !== 'CONFIRMED') {
+    /*
+     * The normal case: the car is about to go out.
+     *
+     * CONFIRMED used to be in here, on the reasoning that an online booking
+     * was paid by the time it was confirmed. Confirmation now happens BEFORE
+     * payment, so that reasoning is dead and a CONFIRMED booking may not have
+     * paid a dirham. READY_FOR_PICKUP is the only status that means the car
+     * is genuinely collectable - for online bookings it is reached by the
+     * payment clearing, for cash ones by staff moving it there deliberately.
+     */
+    const READY = ['READY_FOR_PICKUP'];
+
+    /*
+     * The recovery case: the booking says the car is already out, or even back,
+     * but there is no rental behind it.
+     *
+     * That happens when the status was moved by hand - the status endpoint
+     * walks the booking lifecycle and does NOT create a rental, because the
+     * rental is created by this flow. The result was a booking the counter
+     * could not touch at all: too late to hand over, and nothing to return,
+     * inspect or close. Staff read that as "the inspection option is disabled".
+     *
+     * Allowing the handover to be recorded late is what unsticks it. The
+     * odometer and fuel readings are captured now instead of never, and the
+     * booking goes back to ACTIVE so the return - and its inspection - can run
+     * properly. Recording the real numbers late beats leaving a rental with no
+     * readings at all, which is what makes a damage or mileage charge
+     * indefensible.
+     *
+     * COMPLETED and CANCELLED are deliberately NOT here. They are terminal,
+     * and quietly reopening finished business would be a worse bug than the
+     * one this fixes.
+     */
+    const NEVER_RECORDED = ['ACTIVE', 'EXTENSION_REQUESTED', 'RETURN_PENDING', 'RETURNED'];
+
+    if (!READY.includes(booking.status) && !NEVER_RECORDED.includes(booking.status)) {
       throw ApiError.conflict(
         `A ${booking.status.toLowerCase().replace(/_/g, ' ')} booking cannot be handed over. Confirm it first.`,
       );
@@ -108,31 +170,33 @@ export const rentalsService = {
     }
 
     /*
-     * NO KEYS UNTIL THE MONEY IS IN.
+     * NO KEYS UNTIL THE MONEY IS IN. For everyone, now.
      *
-     * A cash booking reaches CONFIRMED without a payment - that is the whole
-     * point of the option - so this is the control that keeps it safe. It
-     * mirrors what happens at a real counter: the cash is taken, THEN the car
-     * is released. Without it, "pay at pickup" would quietly mean "never pay".
+     * This used to run for cash bookings only, because an online booking
+     * could not reach CONFIRMED without paying. Payment now comes AFTER
+     * confirmation, so that exemption would hand a car to any online customer
+     * whose booking was walked forward by hand.
      *
-     * An online booking is already paid by the time it is CONFIRMED, so this
-     * simply passes for them.
+     * Checking every booking is both safer and simpler than reasoning about
+     * which ones are exempt. It mirrors what happens at a real counter: the
+     * money is taken, THEN the car is released. A booking that paid online
+     * passes this without anyone noticing it ran.
      */
-    if (booking.paymentMethod === 'CASH_ON_PICKUP') {
-      const paid = await prisma.payment.findFirst({
-        where: {
-          bookingId,
-          type: 'RENTAL',
-          status: { in: ['SUCCESS', 'REFUNDED', 'PARTIALLY_REFUNDED'] },
-        },
-        select: { id: true },
-      });
+    const paid = await prisma.payment.findFirst({
+      where: {
+        bookingId,
+        type: 'RENTAL',
+        status: { in: ['SUCCESS', 'REFUNDED', 'PARTIALLY_REFUNDED'] },
+      },
+      select: { id: true },
+    });
 
-      if (!paid) {
-        throw ApiError.badRequest(
-          'This is a pay-at-pickup booking and the rental is unpaid. Record the cash payment before handing over the vehicle.',
-        );
-      }
+    if (!paid) {
+      throw ApiError.badRequest(
+        booking.paymentMethod === 'CASH_ON_PICKUP'
+          ? 'This is a pay-at-pickup booking and the rental is unpaid. Record the cash payment before handing over the vehicle.'
+          : 'This booking has no cleared rental payment. The vehicle cannot be handed over until the payment arrives.',
+      );
     }
 
     if (input.mileage < booking.vehicle.currentMileage) {
@@ -165,8 +229,9 @@ export const rentalsService = {
           fuelPercent: input.fuelPercent,
           conditionNotes: input.conditionNotes ?? null,
           damageNotes: input.damageNotes ?? null,
-          accessories: (input.accessories ?? []) as Prisma.InputJsonValue,
+          accessories: (input.accessories ?? []),
           customerVerified: true,
+          ...signOffFields(input, now),
           inspectedById: actor.id,
         },
       });
@@ -286,7 +351,8 @@ export const rentalsService = {
           // pickup inspection.
           damageNotes: input.damageNotes ?? null,
           cleanliness: input.cleanliness ?? null,
-          accessories: (input.missingAccessories ?? []) as Prisma.InputJsonValue,
+          accessories: (input.missingAccessories ?? []),
+          ...signOffFields(input, now),
           inspectedById: actor.id,
         },
       });
@@ -302,6 +368,33 @@ export const rentalsService = {
             calculation: charge.calculation as Prisma.InputJsonValue,
             createdById: actor.id,
             status: 'PENDING',
+          },
+        });
+      }
+
+      /*
+       * New damage noted at return becomes a DAMAGE RECORD, not just a note.
+       *
+       * The return form has always had a "New damage" box, and what staff
+       * typed into it was saved on the inspection and went no further. So the
+       * whole damage workflow - assess, approve an amount, charge it against
+       * the deposit - sat finished and unreachable, and the Damages screen was
+       * permanently empty however many scratches were found.
+       *
+       * Deliberately UNCOSTED: it opens at REPORTED with no estimate, because
+       * the person handing back a car knows what they can see, not what the
+       * bodyshop will charge. Someone prices it afterwards, and only an
+       * APPROVED amount is ever billed.
+       */
+      if (input.damageNotes && input.damageNotes.trim().length > 0) {
+        await tx.damage.create({
+          data: {
+            vehicleId: booking.vehicleId,
+            bookingId,
+            type: 'OTHER',
+            description: input.damageNotes.trim(),
+            status: 'REPORTED',
+            reportedById: actor.id,
           },
         });
       }
@@ -401,6 +494,11 @@ export const rentalsService = {
         cleanliness: inspection.cleanliness,
         accessories: inspection.accessories,
         customerVerified: inspection.customerVerified,
+        /// The hirer's own sign-off, which is a different claim from the line
+        /// above - see `ConditionSignOff`.
+        customerSignedName: inspection.customerSignedName,
+        customerSignedAt: inspection.customerSignedAt?.toISOString() ?? null,
+        customerDeclinedAt: inspection.customerDeclinedAt?.toISOString() ?? null,
         createdAt: inspection.createdAt.toISOString(),
         photos: inspection.photos.map((photo) => ({
           id: photo.id,

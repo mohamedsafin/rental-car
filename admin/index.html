@@ -4,7 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#ffffff" />
     <title>UAE Car Rental - Admin</title>
+
+    <!--
+      The same family the customer site uses, so the two halves of the product
+      are recognisably one company. Geist stays crisp at the 12-13px this app
+      lives at, which is the whole job here - there is no display type in a
+      back office.
+
+      Preconnect first so the request does not wait on a fresh DNS + TLS
+      handshake, and `display=swap` so text paints immediately in the fallback
+      rather than leaving staff looking at a blank panel.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="root"></div>

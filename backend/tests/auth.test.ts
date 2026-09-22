@@ -3,7 +3,7 @@
  * ---------------------------------------------------------------------------
  * Registration, login, token handling and account protection.
  */
-import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { prisma, disconnectPrisma } from '../src/config/prisma';
@@ -29,6 +29,7 @@ describe('POST /auth/register', () => {
       fullName: 'Aisha Rahman',
       email,
       password: VALID_PASSWORD,
+      dateOfBirth: '1990-01-15',
       phone: '+971501234567',
       country: 'AE',
     });
@@ -42,7 +43,7 @@ describe('POST /auth/register', () => {
     const email = track(uniqueEmail('leak'));
     const res = await request(app)
       .post(`${API}/auth/register`)
-      .send({ fullName: 'Leak Check', email, password: VALID_PASSWORD });
+      .send({ fullName: 'Leak Check', email, password: VALID_PASSWORD, dateOfBirth: '1990-01-15' });
 
     const body = JSON.stringify(res.body);
     expect(body).not.toContain('passwordHash');
@@ -55,7 +56,7 @@ describe('POST /auth/register', () => {
     const email = track(uniqueEmail('cookie'));
     const res = await request(app)
       .post(`${API}/auth/register`)
-      .send({ fullName: 'Cookie User', email, password: VALID_PASSWORD });
+      .send({ fullName: 'Cookie User', email, password: VALID_PASSWORD, dateOfBirth: '1990-01-15' });
 
     const cookie = (res.headers['set-cookie'] as unknown as string[]).find((c) =>
       c.startsWith('refreshToken='),
@@ -66,12 +67,149 @@ describe('POST /auth/register', () => {
     expect(cookie).toContain('Path=/api/v1/auth');
   });
 
+  /*
+   * ONE BROWSER, TWO APPS.
+   *
+   * Browsers file cookies by host and ignore the port, so the customer site
+   * and the admin shared a single "refreshToken" for localhost - and in
+   * production would share one across two subdomains just the same. Whoever
+   * signed in last owned it. Signing into the customer site overwrote the
+   * admin's, the admin then renewed itself with the only cookie there was, and
+   * came back holding a CUSTOMER's session: every staff screen refusing
+   * permission while the header still showed the admin's name.
+   */
+  describe('an admin and a customer can be signed in at once', () => {
+    const readCookie = (res: request.Response, name: string) =>
+      (res.headers['set-cookie'] as unknown as string[] | undefined)?.find((c) =>
+        c.startsWith(`${name}=`),
+      );
+
+    it('gives the admin app its own cookie name', async () => {
+      const email = track(uniqueEmail('admincookie'));
+      await createUser({ email, role: 'ADMIN' });
+
+      const res = await request(app)
+        .post(`${API}/auth/login`)
+        .set('X-Client-App', 'admin')
+        .send({ email, password: VALID_PASSWORD });
+
+      expect(res.status).toBe(200);
+      expect(readCookie(res, 'adminRefreshToken')).toBeDefined();
+      // The customer site's cookie is left exactly as it was.
+      expect(readCookie(res, 'refreshToken')).toBeUndefined();
+    });
+
+    it('leaves the customer site on the original cookie', async () => {
+      const email = track(uniqueEmail('webcookie'));
+
+      const res = await request(app)
+        .post(`${API}/auth/register`)
+        .send({ fullName: 'Web User', email, password: VALID_PASSWORD, dateOfBirth: '1990-01-15' });
+
+      expect(readCookie(res, 'refreshToken')).toBeDefined();
+      expect(readCookie(res, 'adminRefreshToken')).toBeUndefined();
+    });
+
+    it('REFUSES to renew an admin session from the customer cookie', async () => {
+      const customerEmail = track(uniqueEmail('mixed-customer'));
+      const customer = await request(app)
+        .post(`${API}/auth/register`)
+        .send({ fullName: 'Mixed Customer', email: customerEmail, password: VALID_PASSWORD, dateOfBirth: '1990-01-15' });
+
+      const customerCookie = readCookie(customer, 'refreshToken')!.split(';')[0]!;
+
+      // The admin app, holding only the customer site's cookie, asks to renew.
+      const res = await request(app)
+        .post(`${API}/auth/refresh`)
+        .set('X-Client-App', 'admin')
+        .set('Cookie', customerCookie)
+        .send();
+
+      // It used to hand back a working CUSTOMER token here.
+      expect(res.status).toBe(401);
+    });
+
+    it('renews each app from its own cookie, as itself', async () => {
+      const adminEmail = track(uniqueEmail('side-admin'));
+      await createUser({ email: adminEmail, role: 'ADMIN' });
+
+      const adminLogin = await request(app)
+        .post(`${API}/auth/login`)
+        .set('X-Client-App', 'admin')
+        .send({ email: adminEmail, password: VALID_PASSWORD });
+
+      const customerEmail = track(uniqueEmail('side-customer'));
+      const customerLogin = await request(app)
+        .post(`${API}/auth/register`)
+        .send({ fullName: 'Side Customer', email: customerEmail, password: VALID_PASSWORD, dateOfBirth: '1990-01-15' });
+
+      // Both cookies in one jar, exactly as a real browser would hold them.
+      const jar = [
+        readCookie(adminLogin, 'adminRefreshToken')!.split(';')[0]!,
+        readCookie(customerLogin, 'refreshToken')!.split(';')[0]!,
+      ].join('; ');
+
+      const asAdmin = await request(app)
+        .post(`${API}/auth/refresh`)
+        .set('X-Client-App', 'admin')
+        .set('Cookie', jar)
+        .send();
+
+      const asCustomer = await request(app).post(`${API}/auth/refresh`).set('Cookie', jar).send();
+
+      expect(asAdmin.status).toBe(200);
+      expect(asAdmin.body.data.user.email).toBe(adminEmail);
+      expect(asAdmin.body.data.user.role).toBe('ADMIN');
+
+      expect(asCustomer.status).toBe(200);
+      expect(asCustomer.body.data.user.email).toBe(customerEmail);
+      expect(asCustomer.body.data.user.role).toBe('CUSTOMER');
+    });
+
+    it('signing out of the admin leaves the customer session alone', async () => {
+      const adminEmail = track(uniqueEmail('out-admin'));
+      await createUser({ email: adminEmail, role: 'ADMIN' });
+
+      const adminLogin = await request(app)
+        .post(`${API}/auth/login`)
+        .set('X-Client-App', 'admin')
+        .send({ email: adminEmail, password: VALID_PASSWORD });
+
+      const customerEmail = track(uniqueEmail('out-customer'));
+      const customerLogin = await request(app)
+        .post(`${API}/auth/register`)
+        .send({ fullName: 'Out Customer', email: customerEmail, password: VALID_PASSWORD, dateOfBirth: '1990-01-15' });
+
+      const customerCookie = readCookie(customerLogin, 'refreshToken')!.split(';')[0]!;
+      const jar = [
+        readCookie(adminLogin, 'adminRefreshToken')!.split(';')[0]!,
+        customerCookie,
+      ].join('; ');
+
+      const loggedOut = await request(app)
+        .post(`${API}/auth/logout`)
+        .set('X-Client-App', 'admin')
+        .set('Cookie', jar)
+        .send();
+      expect(loggedOut.status).toBe(200);
+
+      // The customer, in the next tab, is still signed in.
+      const stillIn = await request(app)
+        .post(`${API}/auth/refresh`)
+        .set('Cookie', customerCookie)
+        .send();
+      expect(stillIn.status).toBe(200);
+      expect(stillIn.body.data.user.email).toBe(customerEmail);
+    });
+  });
+
   it('IGNORES a role field in the body - no self-promotion to ADMIN', async () => {
     const email = track(uniqueEmail('escalate'));
     const res = await request(app).post(`${API}/auth/register`).send({
       fullName: 'Sneaky User',
       email,
       password: VALID_PASSWORD,
+      dateOfBirth: '1990-01-15',
       role: 'ADMIN',
     });
 
@@ -95,7 +233,7 @@ describe('POST /auth/register', () => {
 
     const res = await request(app)
       .post(`${API}/auth/register`)
-      .send({ fullName: 'Duplicate', email, password: VALID_PASSWORD });
+      .send({ fullName: 'Duplicate', email, password: VALID_PASSWORD, dateOfBirth: '1990-01-15' });
 
     expect(res.status).toBe(409);
   });
@@ -104,10 +242,72 @@ describe('POST /auth/register', () => {
     const lower = track(uniqueEmail('case'));
     const res = await request(app)
       .post(`${API}/auth/register`)
-      .send({ fullName: 'Case Test', email: lower.toUpperCase(), password: VALID_PASSWORD });
+      .send({
+        fullName: 'Case Test',
+        email: lower.toUpperCase(),
+        password: VALID_PASSWORD,
+        dateOfBirth: '1990-01-15',
+      });
 
     expect(res.status).toBe(201);
     expect(res.body.data.user.email).toBe(lower);
+  });
+
+  /*
+   * ==========================================================================
+   * ASKING FOR THE DATE OF BIRTH AT SIGN-UP, NOT AT BOOKING
+   * ==========================================================================
+   * It used to live on the profile screen, so the first time most customers
+   * were asked was halfway through a booking: the minimum-age rule fired, the
+   * booking stopped, and somebody who had already chosen a car and picked
+   * dates was sent off to fill in a form. These prove the field is collected
+   * at sign-up and actually lands on the rental profile - which is the only
+   * thing that stops the booking flow having to ask.
+   */
+  it('saves the date of birth onto the rental profile', async () => {
+    const email = track(uniqueEmail('dob'));
+
+    const res = await request(app).post(`${API}/auth/register`).send({
+      fullName: 'Dated Customer',
+      email,
+      password: VALID_PASSWORD,
+      dateOfBirth: '1994-06-30',
+    });
+
+    expect(res.status).toBe(201);
+
+    // On the CUSTOMER row, not the login: the booking flow reads it there.
+    const customer = await prisma.customer.findFirst({
+      where: { user: { email } },
+      select: { dateOfBirth: true },
+    });
+
+    expect(customer).not.toBeNull();
+    expect(customer?.dateOfBirth?.toISOString().slice(0, 10)).toBe('1994-06-30');
+  });
+
+  it('refuses to create an account without one', async () => {
+    const res = await request(app)
+      .post(`${API}/auth/register`)
+      .send({ fullName: 'No Birthday', email: uniqueEmail('nodob'), password: VALID_PASSWORD });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toMatch(/dateOfBirth/i);
+  });
+
+  it('refuses a date that cannot describe a living driver', async () => {
+    for (const dateOfBirth of ['2025-01-01', '1890-01-01']) {
+      const res = await request(app)
+        .post(`${API}/auth/register`)
+        .send({
+          fullName: 'Impossible Age',
+          email: uniqueEmail('badage'),
+          password: VALID_PASSWORD,
+          dateOfBirth,
+        });
+
+      expect(res.status).toBe(400);
+    }
   });
 });
 

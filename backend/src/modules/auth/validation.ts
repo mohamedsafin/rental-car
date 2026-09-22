@@ -42,10 +42,48 @@ const phoneSchema = z
   .regex(/^\+?[1-9]\d{7,14}$/, 'Enter a valid mobile number, e.g. +971501234567')
   .optional();
 
+/**
+ * Date of birth, asked at REGISTRATION.
+ *
+ * ===========================================================================
+ * WHY HERE AND NOT AT BOOKING
+ * ===========================================================================
+ * It used to be collected on the profile screen, which meant the first time
+ * most customers were asked was halfway through a booking - the minimum-age
+ * rule would fire, the booking would stop, and somebody who had already chosen
+ * a car and picked dates was sent off to fill in a form. That is the worst
+ * possible moment to ask: the customer is committed, and the question looks
+ * like the system failing rather than a rule being applied.
+ *
+ * Asking at sign-up costs one field on a form somebody is already filling in,
+ * and means the age rule can be checked silently ever after.
+ *
+ * REQUIRED, because a rental business cannot hand a car to somebody whose age
+ * it does not know, and an optional field here just moves the interruption
+ * back to the booking screen for anybody who skipped it.
+ *
+ * The bounds are deliberately wide: 16 to 110 only rejects dates that cannot
+ * describe a living driver. The REAL minimum age is a client setting, enforced
+ * at booking time against the PICKUP date - a 20-year-old signing up today is
+ * allowed to hold an account, and may or may not be allowed to rent, and those
+ * are different questions.
+ */
+const dateOfBirthSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD')
+  .refine(
+    (value) => {
+      const years = (Date.now() - new Date(value).getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+      return years >= 16 && years <= 110;
+    },
+    { message: 'Enter a valid date of birth' },
+  );
+
 export const registerSchema = z.object({
   fullName: z.string().min(2, 'Full name is required').max(120).trim(),
   email: emailSchema,
   password: passwordSchema,
+  dateOfBirth: dateOfBirthSchema,
   phone: phoneSchema,
   country: z
     .string()
@@ -80,5 +118,30 @@ export const updateProfileSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+/*
+ * Asking for a reset takes an email and nothing else.
+ *
+ * The response is identical whether or not the address is known (see
+ * verificationService), so there is nothing here to validate beyond "is this
+ * shaped like an email at all".
+ */
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('Enter a valid email address').toLowerCase().trim(),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'This link is missing its token'),
+  // The FULL password rules: a reset is where a weak password would otherwise
+  // sneak in, since the change-password endpoint's leniency is only about
+  // accepting an OLD password, never about setting a new one.
+  password: passwordSchema,
+});
+
+export const verifyEmailSchema = z.object({
+  token: z.string().min(1, 'This link is missing its token'),
+});
+
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

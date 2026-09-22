@@ -12,6 +12,7 @@
  * Plus coupons, where the point being tested is that the server decides what a
  * code is worth and the client cannot send an amount.
  */
+import { Prisma } from '@prisma/client';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import crypto from 'node:crypto';
@@ -141,11 +142,13 @@ async function bookAndPay(
   expect(created.status).toBe(201);
   const bookingId = created.body.data.booking.id as string;
 
+  // Approving the documents IS the confirmation now; initiating the payment
+  // below is what carries the booking on to PAYMENT_PENDING.
   if (created.body.data.booking.status === 'DOCUMENT_VERIFICATION') {
     await request(app)
       .patch(`${API}/bookings/${bookingId}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'PAYMENT_PENDING' });
+      .send({ status: 'CONFIRMED' });
   }
 
   const initiated = await request(app)
@@ -535,7 +538,7 @@ describe('Reports (BRD 48-50)', () => {
     });
 
     const expected = payments
-      .reduce((total, payment) => total.add(payment.amount), new (require('@prisma/client').Prisma.Decimal)(0))
+      .reduce((total, payment) => total.add(payment.amount), new Prisma.Decimal(0))
       .toFixed(2);
 
     expect(response.body.data.grossRevenue).toBe(expected);
@@ -905,6 +908,15 @@ describe('Cash on pickup (BRD 19)', () => {
     await setCash(true);
 
     const { id: bookingId } = await bookWithCash([450, 453]);
+
+    // A cash booking is allowed to reach READY_FOR_PICKUP unpaid - that is the
+    // whole point of the option, and the money gate sits at the handover
+    // instead. This proves the gate is really there.
+    const ready = await request(app)
+      .patch(`${API}/bookings/${bookingId}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'READY_FOR_PICKUP' });
+    expect(ready.status).toBe(200);
 
     const refused = await request(app)
       .post(`${API}/rentals/booking/${bookingId}/pickup`)

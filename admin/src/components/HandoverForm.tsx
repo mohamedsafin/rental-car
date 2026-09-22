@@ -10,6 +10,12 @@
  */
 import { useState, type FormEvent } from 'react';
 import { useRecordPickup } from '../features/rentals/useRentals';
+import ConditionSignOff from './ConditionSignOff';
+import {
+  emptySignOff,
+  signOffPayload,
+  type SignOffState,
+} from './conditionSignOff.helpers';
 
 /** BRD 24 asks staff to record accessories. Common ones, plus free text. */
 const COMMON_ACCESSORIES = [
@@ -36,6 +42,7 @@ export default function HandoverForm({
   const [conditionNotes, setConditionNotes] = useState('');
   const [damageNotes, setDamageNotes] = useState('');
   const [accessories, setAccessories] = useState<string[]>([]);
+  const [signOff, setSignOff] = useState<SignOffState>(emptySignOff);
   const [error, setError] = useState<string | null>(null);
 
   function submit(event: FormEvent) {
@@ -50,6 +57,7 @@ export default function HandoverForm({
         conditionNotes: conditionNotes.trim() || undefined,
         damageNotes: damageNotes.trim() || undefined,
         accessories,
+        ...signOffPayload(signOff),
       },
       { onError: (err) => setError(err.message) },
     );
@@ -161,6 +169,8 @@ export default function HandoverForm({
           documents.
         </span>
       </label>
+
+      <ConditionSignOff value={signOff} onChange={setSignOff} moment="handover" />
 
       <button
         type="submit"

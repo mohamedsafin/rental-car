@@ -13,11 +13,18 @@
  * handover that nobody actually performed.
  */
 import { useSearchParams, Link } from 'react-router-dom';
-import { usePickups, dayBounds } from '../features/operations/useOperations';
+import {
+  usePickups,
+  useNextScheduledDay,
+  dayBounds,
+  localDate,
+  PICKUP_STATUSES,
+} from '../features/operations/useOperations';
 import BookingStatusBadge from '../components/BookingStatusBadge';
 
+/** The board opens on the local day, not the UTC one - see `localDate`. */
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDate();
 }
 
 function timeOf(iso: string): string {
@@ -32,9 +39,14 @@ function isLate(pickupAt: string): boolean {
 export default function PickupsPage() {
   const [params, setParams] = useSearchParams();
   const date = params.get('date') ?? today();
-  const status = params.get('status') ?? 'READY_FOR_PICKUP';
+  /*
+   * Empty string means "both statuses". It used to default to
+   * READY_FOR_PICKUP alone, which hid every booking nobody had prepped yet -
+   * so the board was blank first thing in the morning, when it matters most.
+   */
+  const status = params.get('status') ?? '';
 
-  const { data, isPending } = usePickups(dayBounds(date), status);
+  const { items: rows, isPending, isError, refetch } = usePickups(dayBounds(date), status || undefined);
 
   function setParam(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -43,7 +55,7 @@ export default function PickupsPage() {
     setParams(next);
   }
 
-  const items = [...(data?.items ?? [])].sort(
+  const items = [...rows].sort(
     (a, b) => new Date(a.period.pickupAt).getTime() - new Date(b.period.pickupAt).getTime(),
   );
 
@@ -79,6 +91,7 @@ export default function PickupsPage() {
 
       <div className="flex flex-wrap gap-2">
         {[
+          { value: '', label: 'All due out' },
           { value: 'READY_FOR_PICKUP', label: 'Ready for pickup' },
           { value: 'CONFIRMED', label: 'Confirmed, not yet prepared' },
         ].map((option) => (
@@ -100,10 +113,21 @@ export default function PickupsPage() {
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         {isPending && <p className="px-5 py-8 text-sm text-slate-500">Loading...</p>}
 
-        {!isPending && items.length === 0 && (
-          <p className="px-5 py-10 text-center text-sm text-slate-500">
-            Nothing due for collection on {date}.
-          </p>
+        {!isPending && isError && (
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm font-medium text-red-700">Could not load the pickup board.</p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="mt-3 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {!isPending && !isError && items.length === 0 && (
+          <EmptyDay date={date} status={status} onJump={(next) => setParam('date', next)} />
         )}
 
         {items.length > 0 && (
@@ -167,7 +191,63 @@ export default function PickupsPage() {
         )}
       </div>
 
-      {data && <p className="text-xs text-slate-500">{data.pagination.total} due on {date}.</p>}
+      {!isPending && !isError && items.length > 0 && (
+        <p className="text-xs text-slate-500">
+          {items.length} due out on {date}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The empty state for a quiet day.
+ *
+ * "Nothing due for collection on 2026-09-08" is true but useless - it leaves
+ * staff clicking through dates one at a time, unsure whether the board is
+ * broken or the day is genuinely clear. Looking ahead and naming the next day
+ * that has something on it answers that in one line, and the button saves the
+ * clicking.
+ */
+function EmptyDay({
+  date,
+  status,
+  onJump,
+}: {
+  date: string;
+  status: string;
+  onJump: (date: string) => void;
+}) {
+  const statuses = status ? [status] : PICKUP_STATUSES;
+  const { date: nextDate, isPending } = useNextScheduledDay(date, statuses, 'pickup', true);
+
+  return (
+    <div className="px-5 py-12 text-center">
+      <p className="text-sm font-medium text-slate-700">Nothing due for collection on {date}.</p>
+
+      {isPending && <p className="mt-1 text-sm text-slate-400">Checking the weeks ahead...</p>}
+
+      {!isPending && nextDate && (
+        <>
+          <p className="mt-1 text-sm text-slate-500">
+            The next collection is on <span className="font-medium text-slate-700">{nextDate}</span>.
+          </p>
+          <button
+            type="button"
+            onClick={() => onJump(nextDate)}
+            className="mt-4 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            Go to {nextDate}
+          </button>
+        </>
+      )}
+
+      {!isPending && !nextDate && (
+        <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
+          Nothing is scheduled in the next 90 days either. Bookings appear here once they are
+          confirmed.
+        </p>
+      )}
     </div>
   );
 }

@@ -37,6 +37,14 @@ export interface TrafficFine {
   vehicleId: string;
   bookingId: string | null;
   fineNumber: string;
+  /**
+   * Traffic or parking - which decides who the customer disputes it with.
+   *
+   * A traffic fine comes from the police and can carry black points against
+   * whoever was driving; a parking fine comes from the municipality or a mall
+   * and never does.
+   */
+  fineType: 'TRAFFIC' | 'PARKING' | 'OTHER';
   violationAt: string;
   violation: string | null;
   location: string | null;
@@ -48,6 +56,8 @@ export interface TrafficFine {
   notes: string | null;
   vehicle?: string;
   bookingNumber?: string | null;
+  /** Its rental is finished or cancelled, so nothing further can be charged. */
+  bookingClosed?: boolean;
 }
 
 export interface TollCharge {
@@ -64,6 +74,8 @@ export interface TollCharge {
   status: RecoveryStatus;
   vehicle?: string;
   bookingNumber?: string | null;
+  /** Its rental is finished or cancelled, so nothing further can be charged. */
+  bookingClosed?: boolean;
 }
 
 export interface MaintenanceRecord {
@@ -93,6 +105,8 @@ export interface InsurancePolicy {
   startDate: string;
   expiryDate: string;
   premium: string | null;
+  /** The hirer's exposure before the insurer pays. Null where not recorded. */
+  excessAmount: string | null;
   currency: string;
   isActive: boolean;
   notes: string | null;
@@ -123,9 +137,31 @@ export interface ExpiryItem {
   daysRemaining: number;
 }
 
+/**
+ * A car due a service, by date or by odometer.
+ *
+ * Both targets are optional and reported separately rather than combined: a
+ * car can be four months early on time and 900km late on distance, and one
+ * number would hide both.
+ */
+export interface ServiceDueItem {
+  kind: 'SERVICE';
+  id: string;
+  vehicleId: string;
+  vehicle: string;
+  label: string;
+  dueDate: string | null;
+  daysRemaining: number | null;
+  dueMileage: number | null;
+  currentMileage: number;
+  kmRemaining: number | null;
+  overdue: boolean;
+}
+
 export interface ExpiryDashboard {
   reminderDays: number[];
   horizonDays: number;
   expired: ExpiryItem[];
   dueSoon: ExpiryItem[];
+  serviceDue: ServiceDueItem[];
 }

@@ -33,6 +33,7 @@ const DEFAULTS: VehicleFormValues = {
   year: new Date().getFullYear(),
   variant: '',
   registrationNumber: '',
+  vin: '',
   categoryId: '',
   locationId: '',
   seats: 5,
@@ -47,6 +48,10 @@ const DEFAULTS: VehicleFormValues = {
   mileageLimitPerDay: '',
   extraMileageCharge: '',
   status: 'AVAILABLE',
+  currentMileage: '',
+  purchasePrice: '',
+  purchaseDate: '',
+  currentValue: '',
   isFeatured: false,
   isPublished: true,
   description: '',
@@ -88,7 +93,7 @@ export default function VehicleFormPage() {
     handleSubmit,
     reset,
     setError,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = useForm<VehicleFormValues>({
     resolver: zodResolver(vehicleFormSchema),
     defaultValues: DEFAULTS,
@@ -106,6 +111,7 @@ export default function VehicleFormPage() {
       year: v.year,
       variant: v.variant ?? '',
       registrationNumber: v.registrationNumber ?? '',
+      vin: v.vin ?? '',
       categoryId: v.category.id,
       locationId: v.location?.id ?? '',
       seats: v.seats,
@@ -120,6 +126,10 @@ export default function VehicleFormPage() {
       mileageLimitPerDay: v.mileage.limitPerDay ? String(v.mileage.limitPerDay) : '',
       extraMileageCharge: v.mileage.extraCharge ?? '',
       status: v.status,
+      currentMileage: v.currentMileage === null ? '' : String(v.currentMileage),
+      purchasePrice: v.purchase?.price ?? '',
+      purchaseDate: v.purchase?.date ?? '',
+      currentValue: v.purchase?.currentValue ?? '',
       isFeatured: v.isFeatured,
       isPublished: v.isPublished,
       description: v.description ?? '',
@@ -127,35 +137,62 @@ export default function VehicleFormPage() {
     setSelectedFeatures(v.features.map((f) => f.id));
   }, [vehicleData, reset]);
 
-  const onSubmit = handleSubmit(async (values) => {
-    setServerError(null);
-    setSaved(false);
-    const payload = toApiPayload(values, selectedFeatures);
+  /**
+   * Builds the submit handler. `afterSave` lets "Finish" reuse the exact same
+   * validation and save path as "Save changes" and then leave the page, rather
+   * than duplicating the payload mapping and error handling.
+   */
+  const buildSubmit = (afterSave?: () => void) =>
+    handleSubmit(async (values) => {
+      setServerError(null);
+      setSaved(false);
+      const payload = toApiPayload(values, selectedFeatures);
 
-    const handleError = (error: NormalisedApiError) => {
-      // Map field errors from the backend onto their inputs, so a rule we did
-      // not mirror client-side still lands next to the field it concerns.
-      if (error.errors.length > 0) {
-        error.errors.forEach((fieldError) => {
-          setError(fieldError.field as keyof VehicleFormValues, { message: fieldError.message });
+      const handleError = (error: NormalisedApiError) => {
+        // Map field errors from the backend onto their inputs, so a rule we did
+        // not mirror client-side still lands next to the field it concerns.
+        if (error.errors.length > 0) {
+          error.errors.forEach((fieldError) => {
+            setError(fieldError.field as keyof VehicleFormValues, { message: fieldError.message });
+          });
+        } else {
+          setServerError(error.message);
+        }
+      };
+
+      if (isNew) {
+        createVehicle.mutate(payload, {
+          onSuccess: (result) => navigate(`/vehicles/${result.vehicle.id}`, { replace: true }),
+          onError: handleError,
         });
       } else {
-        setServerError(error.message);
+        updateVehicle.mutate(
+          { id: id as string, changes: payload },
+          {
+            onSuccess: () => {
+              setSaved(true);
+              afterSave?.();
+            },
+            onError: handleError,
+          },
+        );
       }
-    };
+    });
 
-    if (isNew) {
-      createVehicle.mutate(payload, {
-        onSuccess: (result) => navigate(`/vehicles/${result.vehicle.id}`, { replace: true }),
-        onError: handleError,
-      });
-    } else {
-      updateVehicle.mutate(
-        { id: id as string, changes: payload },
-        { onSuccess: () => setSaved(true), onError: handleError },
-      );
+  const onSubmit = buildSubmit();
+  const submitAndLeave = buildSubmit(() => navigate('/vehicles'));
+
+  /**
+   * An untouched form needs no PATCH - firing one anyway would write a
+   * "vehicle updated" audit entry for a change nobody made.
+   */
+  function onFinish() {
+    if (!isDirty) {
+      navigate('/vehicles');
+      return;
     }
-  });
+    void submitAndLeave();
+  }
 
   function toggleFeature(featureId: string) {
     setSelectedFeatures((current) =>
@@ -223,6 +260,12 @@ export default function VehicleFormPage() {
               error={errors.registrationNumber?.message}
               {...register('registrationNumber')}
             />
+            <FormField
+              label="Chassis number (VIN)"
+              hint="Optional. Survives a change of plate - every insurer and the RTA asks for it."
+              error={errors.vin?.message}
+              {...register('vin')}
+            />
             <FormField label="Colour" hint="Optional" error={errors.color?.message} {...register('color')} />
 
             <Select label="Category" error={errors.categoryId?.message} {...register('categoryId')}>
@@ -260,6 +303,13 @@ export default function VehicleFormPage() {
               <option value="HYBRID">Hybrid</option>
               <option value="ELECTRIC">Electric</option>
             </Select>
+            <FormField
+              label="Current odometer (km)"
+              type="number"
+              hint="Updated automatically at every return. Set it here when the car first arrives."
+              error={errors.currentMileage?.message}
+              {...register('currentMileage')}
+            />
           </div>
         </fieldset>
 
@@ -309,6 +359,39 @@ export default function VehicleFormPage() {
               inputMode="decimal"
               error={errors.extraMileageCharge?.message}
               {...register('extraMileageCharge')}
+            />
+          </div>
+        </fieldset>
+
+        <fieldset className="rounded-lg border border-slate-200 bg-white p-5">
+          <legend className="px-1 text-sm font-semibold text-slate-900">
+            What the car cost (AED)
+          </legend>
+          <p className="mt-1 text-xs text-slate-500">
+            All optional, and only ever shown to staff. Revenue is already recorded everywhere else;
+            this is the other half of working out whether a car earns its keep.
+          </p>
+          <div className="mt-3 grid gap-4 sm:grid-cols-3">
+            <FormField
+              label="Purchase price"
+              hint="Optional"
+              inputMode="decimal"
+              error={errors.purchasePrice?.message}
+              {...register('purchasePrice')}
+            />
+            <FormField
+              label="Purchase date"
+              type="date"
+              hint="Optional"
+              error={errors.purchaseDate?.message}
+              {...register('purchaseDate')}
+            />
+            <FormField
+              label="Current value"
+              hint="Optional. What it is worth now, for depreciation."
+              inputMode="decimal"
+              error={errors.currentValue?.message}
+              {...register('currentValue')}
             />
           </div>
         </fieldset>
@@ -394,6 +477,35 @@ export default function VehicleFormPage() {
         <p className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
           Save the vehicle first, then you can upload its images.
         </p>
+      )}
+
+      {/*
+        Closing action for the whole page. Images and documents upload straight
+        away on their own buttons, so the only thing left to commit here is the
+        detail form above - which is why Finish saves it before leaving rather
+        than navigating away from edits the user believes are safe.
+      */}
+      {!isNew && vehicleData && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-600">
+            {isDirty
+              ? 'You have unsaved changes in the details above. Finish saves them and returns to the fleet.'
+              : 'Images and documents are saved as soon as they upload. Nothing else is pending.'}
+          </p>
+          <div className="flex items-center gap-3">
+            <Link to="/vehicles" className="text-sm text-slate-600 hover:underline">
+              Back to fleet
+            </Link>
+            <button
+              type="button"
+              onClick={onFinish}
+              disabled={isSubmitting || updateVehicle.isPending}
+              className="rounded-md bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {isSubmitting || updateVehicle.isPending ? 'Saving...' : 'Finish'}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

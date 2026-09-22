@@ -27,7 +27,11 @@ export default function ProtectedRoute({ allowedRoles, redirectTo = '/login' }: 
   // bounce a logged-in user to /login for a split second before restoring them.
   if (isLoading) {
     return (
-      <div className="flex min-h-64 items-center justify-center">
+      <div className="page-container flex min-h-[50vh] flex-col items-center justify-center gap-4" role="status">
+        <span
+          aria-hidden
+          className="h-6 w-6 animate-spin rounded-full border-2 border-ink-200 border-t-ink-950"
+        />
         <p className="text-sm text-ink-500">Loading…</p>
       </div>
     );
@@ -40,11 +44,13 @@ export default function ProtectedRoute({ allowedRoles, redirectTo = '/login' }: 
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-        <h2 className="font-semibold text-amber-900">Access denied</h2>
-        <p className="mt-1 text-sm text-amber-800">
-          Your account does not have permission to view this page.
-        </p>
+      <div className="page-container pt-14">
+        <div className="rounded-card border border-amber-200 bg-amber-50 p-6">
+          <h2 className="font-semibold text-amber-900">Access denied</h2>
+          <p className="mt-1 text-sm text-amber-800">
+            Your account does not have permission to view this page.
+          </p>
+        </div>
       </div>
     );
   }

@@ -15,7 +15,7 @@
  * are created only by an existing admin.
  */
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '../hooks/useAuth';
@@ -87,6 +87,14 @@ export default function LoginPage() {
             {isSubmitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+
+        {/* Right under the form, where somebody who has just failed to
+            remember their password is already looking. */}
+        <p className="mt-4 text-center text-[13px] text-ink-500">
+          <Link to="/forgot-password" className="font-medium text-ink-700 hover:text-ink-950 hover:underline">
+            Forgot your password?
+          </Link>
+        </p>
       </div>
     </div>
   );

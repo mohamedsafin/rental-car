@@ -8,15 +8,16 @@
 import { Router, raw } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate';
-import { authorizeAdmin, authorizeStaff } from '../../middleware/authorize';
-import { validate } from '../../middleware/validate';
+import { authorizeAdmin, authorizeFinance } from '../../middleware/authorize';
+import { validate, getValidatedQuery } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
-import { sendCreated, sendSuccess } from '../../utils/apiResponse';
+import { sendCreated, sendPaginated, sendSuccess } from '../../utils/apiResponse';
 import { ApiError } from '../../utils/ApiError';
 import { prisma } from '../../config/prisma';
 import { requestContext } from '../audit/service';
 import { paymentProvider } from '../../services/payment';
 import { paymentsService, type PaymentActor } from './service';
+import { isBackOffice } from '../../modules/auth/roles';
 
 const bookingIdParam = z.object({ id: z.string().uuid('Invalid booking id') });
 const paymentIdParam = z.object({ id: z.string().uuid('Invalid payment id') });
@@ -93,6 +94,31 @@ router.post(
 );
 
 /** GET /payments/booking/:id - payment history for one booking (BRD 22). */
+/**
+ * GET /payments - the whole ledger, for staff.
+ *
+ * Staff only. A customer sees their own payments on their own booking; a list
+ * across every booking is a back-office view by definition.
+ */
+const listSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  status: z.enum(['PENDING', 'SUCCESS', 'FAILED', 'REFUNDED', 'PARTIALLY_REFUNDED']).optional(),
+  type: z.enum(['RENTAL', 'SECURITY_DEPOSIT', 'ADDITIONAL_CHARGE', 'EXTENSION']).optional(),
+  search: z.string().trim().max(120).optional(),
+});
+
+router.get(
+  '/',
+  authorizeFinance,
+  validate({ query: listSchema }),
+  asyncHandler(async (req, res) => {
+    const query = getValidatedQuery<z.infer<typeof listSchema>>(req);
+    const { items, total } = await paymentsService.list(query);
+    sendPaginated(res, items, query.page, query.limit, total, 'Payments retrieved');
+  }),
+);
+
 router.get(
   '/booking/:id',
   validate({ params: bookingIdParam }),
@@ -104,8 +130,8 @@ router.get(
       select: { customerId: true },
     });
 
-    const isBackOffice = req.user!.role === 'ADMIN' || req.user!.role === 'STAFF';
-    if (!booking || (!isBackOffice && booking.customerId !== req.user!.id)) {
+    const backOffice = isBackOffice(req.user!.role);
+    if (!booking || (!backOffice && booking.customerId !== req.user!.id)) {
       throw ApiError.notFound('Booking not found');
     }
 
@@ -173,7 +199,7 @@ router.post(
  */
 router.post(
   '/booking/:bookingId/cash',
-  authorizeStaff,
+  authorizeFinance,
   validate({
     params: z.object({ bookingId: z.string().uuid('Invalid booking id') }),
     body: z.object({

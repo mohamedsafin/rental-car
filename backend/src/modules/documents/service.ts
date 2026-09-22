@@ -21,7 +21,7 @@
  *     wants the customer to re-upload; the rejection remains part of the
  *     record of what was checked and when.
  */
-import type { DocumentType, Prisma } from '@prisma/client';
+import type { DocumentType, Role } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { logger } from '../../config/logger';
 import { ApiError } from '../../utils/ApiError';
@@ -31,11 +31,12 @@ import { auditService } from '../audit/service';
 import { fireAndForget, notify } from '../notifications/triggers';
 import { evaluateRequirements } from '../customers/requirements';
 import { toPublicDocument, type PublicDocument } from '../customers/types';
+import { isBackOffice } from '../../modules/auth/roles';
 
 export interface DocumentActor {
   id: string;
   email: string;
-  role: 'CUSTOMER' | 'ADMIN' | 'STAFF';
+  role: Role;
   ipAddress?: string;
   userAgent?: string;
 }
@@ -185,10 +186,10 @@ export const documentService = {
       include: { customer: { select: { userId: true } } },
     });
 
-    const isBackOffice = actor.role === 'ADMIN' || actor.role === 'STAFF';
+    const backOffice = isBackOffice(actor.role);
     const isOwner = document?.customer.userId === actor.id;
 
-    if (!document || (!isBackOffice && !isOwner)) {
+    if (!document || (!backOffice && !isOwner)) {
       // Deliberately identical for "no such document" and "not yours".
       throw ApiError.notFound('Document not found');
     }

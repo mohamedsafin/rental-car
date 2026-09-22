@@ -55,6 +55,8 @@ export interface Vehicle {
   name: string;
   /** Null on the public view; only admins receive the plate. */
   registrationNumber: string | null;
+  /** Chassis number. Staff only, like the plate. */
+  vin: string | null;
   category: { id: string; name: string; slug: string };
   location: { id: string; name: string } | null;
   seats: number;
@@ -71,6 +73,10 @@ export interface Vehicle {
   };
   mileage: { limitPerDay: number | null; extraCharge: string | null };
   status: VehicleStatus;
+  /** Odometer. Staff only, and null where it was never recorded. */
+  currentMileage: number | null;
+  /** What the car cost and is worth. Staff only; null on the public view. */
+  purchase: { price: string | null; date: string | null; currentValue: string | null } | null;
   isFeatured: boolean;
   isPublished: boolean;
   description: string | null;

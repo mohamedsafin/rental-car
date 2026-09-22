@@ -2,7 +2,7 @@
  * tests/payments.test.ts
  * ---------------------------------------------------------------------------
  * PHASE 7 ACCEPTANCE: a WEBHOOK - not the browser - flips a booking from
- * PAYMENT_PENDING to CONFIRMED.
+ * PAYMENT_PENDING to READY_FOR_PICKUP.
  *
  * The negative tests matter more than the happy path. Marking a payment
  * successful because the frontend said so is the single most common way
@@ -115,7 +115,7 @@ afterAll(async () => {
   await disconnectPrisma();
 });
 
-/** Create a booking and move it to PAYMENT_PENDING. */
+/** Create a booking and get it as far as the payment step. */
 async function bookAndReady(days: [number, number]): Promise<string> {
   const created = await request(app)
     .post(`${API}/bookings`)
@@ -124,11 +124,13 @@ async function bookAndReady(days: [number, number]): Promise<string> {
 
   const id = created.body.data.booking.id as string;
 
+  // Approving the documents IS the confirmation now; the booking reaches
+  // PAYMENT_PENDING when checkout is initiated, not by a status click.
   if (created.body.data.booking.status === 'DOCUMENT_VERIFICATION') {
     await request(app)
       .patch(`${API}/bookings/${id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'PAYMENT_PENDING' });
+      .send({ status: 'CONFIRMED' });
   }
   return id;
 }
@@ -170,7 +172,7 @@ describe('webhook signature - the front door', () => {
 });
 
 describe('a webhook confirms the booking - the Phase 7 acceptance test', () => {
-  it('flips PAYMENT_PENDING to CONFIRMED, and only via the webhook', async () => {
+  it('flips PAYMENT_PENDING to READY_FOR_PICKUP, and only via the webhook', async () => {
     const bookingId = await bookAndReady([2000, 2003]);
 
     const session = await initiate(bookingId);
@@ -192,7 +194,7 @@ describe('a webhook confirms the booking - the Phase 7 acceptance test', () => {
     expect(res.status).toBe(200);
 
     booking = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
-    expect(booking.status).toBe('CONFIRMED');
+    expect(booking.status).toBe('READY_FOR_PICKUP');
     expect(booking.holdExpiresAt).toBeNull();
 
     const settled = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
@@ -213,7 +215,7 @@ describe('a webhook confirms the booking - the Phase 7 acceptance test', () => {
     );
 
     const history = await prisma.bookingStatusHistory.findMany({
-      where: { bookingId, toStatus: 'CONFIRMED' },
+      where: { bookingId, toStatus: 'READY_FOR_PICKUP' },
     });
     expect(history).toHaveLength(1);
     expect(history[0]?.reason).toContain('Payment received');
@@ -241,7 +243,7 @@ describe('a webhook confirms the booking - the Phase 7 acceptance test', () => {
     const viaStatus = await request(app)
       .patch(`${API}/bookings/${bookingId}/status`)
       .set('Authorization', `Bearer ${customerToken}`)
-      .send({ status: 'CONFIRMED' });
+      .send({ status: 'READY_FOR_PICKUP' });
     expect(viaStatus.status).toBe(403);
 
     const booking = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
@@ -454,7 +456,15 @@ describe('refunds (BRD 32)', () => {
     return { bookingId, paymentId: payment.id, amount: payment.amount.toFixed(2) };
   }
 
-  it('issues a partial refund and marks the payment PARTIALLY_REFUNDED', async () => {
+  /*
+   * Requesting a refund does NOT mean the money moved.
+   *
+   * This used to assert the payment was PARTIALLY_REFUNDED the instant the
+   * refund was requested - which claimed a provider had paid out before it had
+   * even been asked. A refund follows the same rule as a payment: the provider
+   * confirms it, by webhook, and only then is it true.
+   */
+  it('leaves a requested refund PENDING until the provider confirms it', async () => {
     const { paymentId } = await paidBooking([2200, 2203]);
 
     const res = await request(app)
@@ -463,9 +473,60 @@ describe('refunds (BRD 32)', () => {
       .send({ amount: '50.00', reason: 'Goodwill' });
 
     expect(res.status).toBe(201);
+    expect(res.body.data.refund.status).toBe('PENDING');
 
+    // The money has not moved, so the payment is untouched.
+    const payment = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    expect(payment.status).toBe('SUCCESS');
+  });
+
+  it('completes the refund when the provider webhook says so', async () => {
+    const { paymentId } = await paidBooking([2204, 2207]);
+
+    const requested = await request(app)
+      .post(`${API}/payments/${paymentId}/refund`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ amount: '50.00', reason: 'Goodwill' });
+    expect(requested.status).toBe(201);
+
+    const refund = await prisma.refund.findFirstOrThrow({ where: { paymentId } });
+    expect(refund.providerRefundId).toBeTruthy();
+
+    const hook = await postWebhook(
+      webhookBody({
+        type: 'refund.succeeded',
+        providerRefundId: refund.providerRefundId,
+      }),
+    );
+    expect(hook.status).toBe(200);
+    expect(hook.body.data.reason).toBe('refund_completed');
+
+    const settled = await prisma.refund.findUniqueOrThrow({ where: { id: refund.id } });
+    expect(settled.status).toBe('COMPLETED');
+    expect(settled.completedAt).not.toBeNull();
+
+    // Only NOW does the payment reflect it.
     const payment = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } });
     expect(payment.status).toBe('PARTIALLY_REFUNDED');
+  });
+
+  it('counts an in-flight refund against the cap, so it cannot be double-spent', async () => {
+    const { paymentId, amount } = await paidBooking([2208, 2209]);
+
+    const first = await request(app)
+      .post(`${API}/payments/${paymentId}/refund`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ amount: '50.00' });
+    expect(first.status).toBe(201);
+
+    // Still PENDING - and still spoken for.
+    const second = await request(app)
+      .post(`${API}/payments/${paymentId}/refund`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ amount });
+
+    expect(second.status).toBe(400);
+    expect(second.body.message).toContain('remains refundable');
   });
 
   it('REFUSES to refund more than remains', async () => {

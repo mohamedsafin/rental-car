@@ -1,0 +1,96 @@
+# .github/workflows/ci.yml
+# ---------------------------------------------------------------------------
+# What has to be true before a change lands.
+#
+# Until now nothing ran automatically: the tests, the typechecker and the
+# builds were all things a person remembered to do. That works right up to the
+# day somebody is in a hurry, and the failure shows up in production instead of
+# in a pull request.
+#
+# The four checks are ordered by how fast they fail. Lint and typecheck take
+# seconds and catch typos; the test suite needs a real PostgreSQL and takes a
+# minute; the builds come last because a change that fails the tests is not
+# worth compiling.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch cancels the first run. Nobody needs the
+# results of a commit that has already been replaced.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, typecheck, test and build
+    runs-on: ubuntu-latest
+
+    services:
+      # A REAL PostgreSQL, not a mock.
+      #
+      # This suite leans on things only Postgres does - the exclusion
+      # constraint that makes double-booking impossible, SERIALIZABLE
+      # transactions, row locks. Against a stand-in, the tests that matter
+      # most would pass without testing anything.
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: car_rental_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/car_rental_ci?schema=public
+      NODE_ENV: test
+      # Long enough to satisfy the production guard in config/env.ts, and
+      # obviously disposable. Real secrets never appear in this file.
+      JWT_ACCESS_SECRET: ci-access-secret-not-used-anywhere-real-000000
+      JWT_REFRESH_SECRET: ci-refresh-secret-not-used-anywhere-real-00000
+      PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-not-used-anywhere-real-0000
+      PAYMENT_PROVIDER: mock
+      NOTIFICATION_DRIVER: log
+      STORAGE_DRIVER: local
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5174
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it installs exactly what the
+      # lockfile says, so CI cannot quietly test a different dependency tree
+      # from the one a developer has.
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Apply migrations
+        run: npm run prisma:deploy
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

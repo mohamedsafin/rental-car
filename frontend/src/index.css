@@ -2,61 +2,516 @@
 @import 'tailwindcss';
 
 /*
- * Design tokens.
+ * ===========================================================================
+ * DESIGN TOKENS
+ * ===========================================================================
  *
- * Still placeholders, and deliberately so: the real palette comes from the
- * client's logo and brand guide (BRD 51). What changed is that they are now a
- * COMPLETE, coherent set rather than three unused blues - an ink primary, a
- * warm accent, and a neutral ramp - so the site reads as designed instead of
- * as unstyled default slate. Swapping in the client's brand later means
- * editing these values, not hunting hex codes through forty components.
+ * The direction is "luxury automotive brand + editorial magazine": a white
+ * page, near-black type, and ONE warm accent spent sparingly. The earlier
+ * palette was a blue-tinted ink over a dark navy hero; that read as a product
+ * dashboard. The neutral ramp below has no blue in it at all, which is most of
+ * what makes the white feel like paper rather than like an admin panel.
+ *
+ * The token NAMES are unchanged (`ink-*`, `accent-*`) so every page picks up
+ * the new look without a rename. Swapping in the client's real brand later
+ * (BRD 51) still means editing these values and nothing else.
  */
 @theme {
-  /* Primary: deep ink blue. Used for surfaces, headers and primary actions. */
-  --color-ink-50: oklch(0.97 0.008 250);
-  --color-ink-100: oklch(0.93 0.015 250);
-  --color-ink-200: oklch(0.86 0.025 250);
-  --color-ink-300: oklch(0.74 0.035 250);
-  --color-ink-400: oklch(0.6 0.045 250);
-  --color-ink-500: oklch(0.48 0.05 252);
-  --color-ink-600: oklch(0.39 0.05 255);
-  --color-ink-700: oklch(0.31 0.045 258);
-  --color-ink-800: oklch(0.24 0.038 260);
-  --color-ink-900: oklch(0.18 0.03 262);
-  --color-ink-950: oklch(0.13 0.025 264);
+  /* Neutral charcoal. Text, hairlines, quiet surfaces. Deliberately untinted.
+     ink-500 is the lightest step allowed for TEXT (4.8:1 on white); 400 and
+     below are for icons, rules and placeholders only. */
+  --color-ink-50: #f7f8fa;
+  --color-ink-100: #eef0f3;
+  --color-ink-200: #e2e5ea;
+  --color-ink-300: #c9ced6;
+  --color-ink-400: #9aa1ac;
+  --color-ink-500: #6b7280;
+  --color-ink-600: #4b5260;
+  --color-ink-700: #343944;
+  --color-ink-800: #1f232b;
+  --color-ink-900: #14171c;
+  --color-ink-950: #0b0d10;
 
-  /* Accent: warm amber. Prices, highlights, the one thing on screen that
-     should catch the eye. Used sparingly on purpose. */
-  --color-accent-50: oklch(0.97 0.03 85);
-  --color-accent-100: oklch(0.94 0.06 85);
-  --color-accent-200: oklch(0.89 0.1 84);
-  --color-accent-300: oklch(0.83 0.14 82);
-  --color-accent-400: oklch(0.78 0.16 78);
-  --color-accent-500: oklch(0.72 0.17 70);
-  --color-accent-600: oklch(0.63 0.16 60);
-  --color-accent-700: oklch(0.52 0.13 55);
+  /*
+   * Warm luxury orange. CTAs, active states, key prices, small badges - and
+   * nowhere else. The steps are chosen against WCAG, not by eye:
+   *
+   *   500  #f06c15  3.06:1 on white - LARGE text and decoration only (the
+   *                 hero's accent phrase, rules, dots). Never body copy.
+   *   600  #c1540c  4.62:1 under white text - the button fill. The lightest
+   *                 orange that still carries white text at AA.
+   *   700  #9c4210  small orange text on white or on accent-50 (badges).
+   */
+  --color-accent-50: #fff6ed;
+  --color-accent-100: #ffead5;
+  --color-accent-200: #fed0a8;
+  --color-accent-300: #fcae70;
+  --color-accent-400: #f98e3f;
+  --color-accent-500: #f06c15;
+  --color-accent-600: #c1540c;
+  --color-accent-700: #9c4210;
+  --color-accent-800: #7c3511;
 
-  --radius-card: 1rem;
+  /* Muted beige. A warm counterweight to the grey, used for soft shapes and
+     the odd tinted panel so the page is not a monochrome spreadsheet. */
+  --color-sand-50: #fbf9f6;
+  --color-sand-100: #f4f0ea;
+  --color-sand-200: #e8e1d6;
+  --color-sand-300: #d8ccbb;
 
-  /* A softer, more layered shadow than the default - cards should lift off
-     the page rather than sit on it with a hard edge. */
-  --shadow-card: 0 1px 2px oklch(0.18 0.03 262 / 0.04), 0 4px 16px oklch(0.18 0.03 262 / 0.06);
-  --shadow-card-hover: 0 2px 4px oklch(0.18 0.03 262 / 0.06), 0 12px 32px oklch(0.18 0.03 262 / 0.12);
+  --font-sans: 'Geist', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-serif: 'Instrument Serif', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+
+  --radius-card: 1.125rem; /* 18px - soft, not bubbly */
+
+  /* Shadows stay low and wide: things should float, not sit on a drop shadow. */
+  --shadow-card: 0 1px 2px rgb(16 18 22 / 0.04), 0 8px 24px -12px rgb(16 18 22 / 0.1);
+  --shadow-card-hover: 0 2px 4px rgb(16 18 22 / 0.04), 0 24px 48px -20px rgb(16 18 22 / 0.22);
+  --shadow-float: 0 1px 2px rgb(16 18 22 / 0.05), 0 30px 70px -28px rgb(16 18 22 / 0.3);
+
+  /* One easing curve for everything that moves: a fast start that settles,
+     which is what reads as "expensive" rather than "animated". */
+  --ease-premium: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-html,
-body,
-#root {
-  height: 100%;
+/*
+ * The content column is 1216px wide with a 20px gutter on phones and 32px from
+ * `sm` up. Variables, so every container and every "reach the edge" negative
+ * margin derives from the same numbers and can never drift apart.
+ */
+:root {
+  --page-max: 76rem;
+  --gutter: 1.25rem;
+}
+@media (min-width: 40rem) {
+  :root {
+    --gutter: 2rem;
+  }
 }
 
-body {
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+/*
+ * ===========================================================================
+ * BASE
+ * ===========================================================================
+ */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    /* In-page anchors (#locations, #how-it-works) land below the sticky header. */
+    scroll-padding-top: 5.5rem;
+  }
+
+  /*
+   * `overflow-x: clip` rather than `hidden`, and the difference matters:
+   * `hidden` makes the body a scroll container, which silently breaks the
+   * `position: sticky` header. `clip` trims sideways overflow (a hero image
+   * that deliberately runs past the column) without creating one.
+   */
+  body {
+    overflow-x: clip;
+    background-color: #ffffff;
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: var(--color-accent-100);
+    color: var(--color-ink-950);
+  }
+
+  /* A visible focus ring everywhere, not just where a component remembered one. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-600);
+    outline-offset: 3px;
+  }
 }
 
-/* Respect the OS setting. Somebody who has asked for less motion should not
-   get cards sliding around under them. */
+/*
+ * ===========================================================================
+ * COMPONENT CLASSES
+ * ===========================================================================
+ * Shared patterns, written once.
+ *
+ * They live in `@layer components` for a load-bearing reason: Tailwind's
+ * utilities live in a LATER layer, so a utility on the same element always
+ * wins - `btn rounded-[14px]` really does get 14px corners. Unlayered, these
+ * rules would silently beat every utility regardless of order.
+ *
+ * Plain CSS against the theme variables rather than @apply, so the definitions
+ * read as design decisions. Logical properties throughout (padding-inline,
+ * inset-inline) so an Arabic RTL build flips on its own.
+ */
+@layer components {
+  /* The one column every page sits in. */
+  .page-container {
+    width: 100%;
+    max-width: calc(var(--page-max) + 2 * var(--gutter));
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+
+  /* Prices and any tabular number column line up on the decimal point. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The editorial accent - one phrase per section, never a paragraph. */
+  .font-editorial {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+
+  /* A display heading. Tight tracking is what makes large Geist look set, not typed. */
+  .display-heading {
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1.02;
+    color: var(--color-ink-950);
+  }
+
+  /* Horizontal rails (categories and cars on mobile) scroll without a visible
+     bar; the partly visible next card is the affordance, not a grey strip. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* --- Buttons ---------------------------------------------------------- */
+  /*
+   * Pill-shaped, and only buttons are. Cards, inputs and images use moderate
+   * radii; keeping the full round for actions is what makes an action findable
+   * at a glance on a page that is otherwise quiet.
+   */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    letter-spacing: -0.005em;
+    padding-block: 0.75rem;
+    padding-inline: 1.25rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background-color 200ms var(--ease-premium),
+      border-color 200ms var(--ease-premium),
+      color 200ms var(--ease-premium),
+      transform 200ms var(--ease-premium),
+      box-shadow 200ms var(--ease-premium);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* A 1px press rather than a scale - a physical button, not a zooming card. */
+  .btn:not(:disabled):active {
+    transform: translateY(1px);
+  }
+
+  /* Any arrow inside a button or card nudges forward on hover. */
+  .btn-arrow,
+  .link-arrow-icon {
+    transition: transform 300ms var(--ease-premium);
+  }
+  .btn:not(:disabled):hover .btn-arrow,
+  .group:hover .link-arrow-icon,
+  .link-arrow:hover .link-arrow-icon {
+    transform: translateX(3px);
+  }
+
+  /* Near-black. The default for anything that is not THE action. */
+  .btn-primary {
+    background-color: var(--color-ink-950);
+    color: #ffffff;
+  }
+  .btn-primary:not(:disabled):hover {
+    background-color: var(--color-ink-800);
+  }
+
+  /* The warm button: search, book, browse, pay. */
+  .btn-accent {
+    background-color: var(--color-accent-600);
+    color: #ffffff;
+  }
+  .btn-accent:not(:disabled):hover {
+    background-color: var(--color-accent-700);
+    box-shadow: 0 10px 24px -12px color-mix(in oklab, var(--color-accent-600) 70%, transparent);
+  }
+
+  .btn-outline {
+    border-color: var(--color-ink-200);
+    background-color: #ffffff;
+    color: var(--color-ink-900);
+  }
+  .btn-outline:not(:disabled):hover {
+    border-color: var(--color-ink-900);
+  }
+
+  .btn-ghost {
+    color: var(--color-ink-700);
+  }
+  .btn-ghost:not(:disabled):hover {
+    background-color: var(--color-ink-50);
+    color: var(--color-ink-950);
+  }
+
+  .btn-lg {
+    padding-block: 0.9375rem;
+    padding-inline: 1.75rem;
+    font-size: 0.9375rem;
+  }
+
+  .btn-sm {
+    padding-block: 0.5rem;
+    padding-inline: 0.9375rem;
+    font-size: 0.8125rem;
+  }
+
+  /* An understated text action: label + arrow, underline on hover. */
+  .link-arrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-ink-950);
+    text-underline-offset: 5px;
+    text-decoration-thickness: 1px;
+  }
+  .link-arrow:hover {
+    text-decoration-line: underline;
+  }
+
+  /* --- Surfaces --------------------------------------------------------- */
+  .surface {
+    background-color: #ffffff;
+    border: 1px solid var(--color-ink-100);
+    border-radius: var(--radius-card);
+  }
+
+  .surface-raised {
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Cards that are a link. A 3px lift, once - enough to say "clickable". */
+  .surface-interactive {
+    transition:
+      transform 400ms var(--ease-premium),
+      border-color 400ms var(--ease-premium),
+      box-shadow 400ms var(--ease-premium);
+  }
+  .surface-interactive:hover {
+    transform: translateY(-3px);
+    border-color: var(--color-ink-200);
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  /* --- Badges ----------------------------------------------------------- */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    border-radius: 999px;
+    padding-block: 0.25rem;
+    padding-inline: 0.625rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1rem;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+
+  .badge-neutral {
+    background-color: color-mix(in oklab, white 88%, transparent);
+    color: var(--color-ink-800);
+    backdrop-filter: blur(6px);
+  }
+
+  .badge-accent {
+    background-color: var(--color-accent-50);
+    color: var(--color-accent-700);
+    box-shadow: inset 0 0 0 1px var(--color-accent-100);
+  }
+
+  .badge-dark {
+    background-color: var(--color-ink-950);
+    color: #ffffff;
+  }
+
+  .badge-outline {
+    box-shadow: inset 0 0 0 1px var(--color-ink-200);
+    color: var(--color-ink-600);
+  }
+
+  /* --- Form controls ---------------------------------------------------- */
+  .field-label {
+    display: block;
+    margin-block-end: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-ink-600);
+  }
+
+  .field-control {
+    width: 100%;
+    min-height: 3rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-ink-200);
+    background-color: #ffffff;
+    color: var(--color-ink-950);
+    font-size: 0.9375rem;
+    padding-block: 0.6875rem;
+    padding-inline: 0.875rem;
+    color-scheme: light;
+    transition:
+      border-color 200ms var(--ease-premium),
+      box-shadow 200ms var(--ease-premium),
+      background-color 200ms var(--ease-premium);
+  }
+
+  .field-control::placeholder {
+    color: var(--color-ink-400);
+  }
+
+  .field-control:hover:not(:disabled) {
+    border-color: var(--color-ink-300);
+  }
+
+  /* The border darkens and a soft halo appears - a ring rather than a thicker
+     border, so a focused control never changes size and nudges its neighbours. */
+  .field-control:focus {
+    outline: none;
+    border-color: var(--color-ink-900);
+    box-shadow: 0 0 0 4px var(--color-ink-100);
+  }
+
+  .field-control:disabled {
+    background-color: var(--color-ink-50);
+    color: var(--color-ink-500);
+  }
+
+  .field-control[aria-invalid='true'] {
+    border-color: #dc2626;
+  }
+  .field-control[aria-invalid='true']:focus {
+    box-shadow: 0 0 0 4px #fee2e2;
+  }
+
+  /* Room for a leading icon sitting inside the control. */
+  .field-control-icon {
+    padding-inline-start: 2.75rem;
+  }
+
+  select.field-control {
+    appearance: none;
+    padding-inline-end: 2.5rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.875rem center;
+    background-size: 1rem;
+  }
+
+  /* --- Section rhythm --------------------------------------------------- */
+  /* The small uppercase label above a title, led by a short orange rule. */
+  .section-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.625rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-ink-500);
+  }
+  .section-eyebrow::before {
+    content: '';
+    width: 1.25rem;
+    height: 1px;
+    background-color: var(--color-accent-500);
+  }
+
+  /* --- Image stage ------------------------------------------------------ */
+  /*
+   * The fleet's images arrive on every kind of background: studio white, grey
+   * seamless, a street, a tinted illustration. `mix-blend-mode: multiply` over
+   * a shared neutral stage is what unifies them - pure white takes on the
+   * stage's tone, so a studio shot looks shot in the same room as its
+   * neighbours, while the darker pixels (the car itself) are untouched.
+   */
+  .image-stage {
+    background: linear-gradient(180deg, #f6f6f4 0%, #eeeeeb 100%);
+  }
+  .image-stage img {
+    mix-blend-mode: multiply;
+  }
+
+  /* --- Motion ----------------------------------------------------------- */
+  .animate-rise {
+    animation: rise-in 600ms var(--ease-premium) both;
+  }
+
+  /* The per-route fade. Short enough that navigation never feels slower. */
+  .animate-page {
+    animation: fade-in 350ms var(--ease-premium) both;
+  }
+
+  /* The hero's floating card: a slow 6px drift, never a bounce. */
+  .animate-float {
+    animation: float-soft 6s ease-in-out infinite;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+/* Respect the OS setting. Somebody who asked for less motion gets none. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -64,12 +519,6 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
-}
-
-/* A visible focus ring everywhere, not just where a component remembered one.
-   Keyboard users need to know where they are. */
-:focus-visible {
-  outline: 2px solid var(--color-accent-500);
-  outline-offset: 2px;
 }

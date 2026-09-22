@@ -28,7 +28,7 @@
  * that two concurrent deliveries could both pass.
  */
 import { Prisma } from '@prisma/client';
-import type { PaymentType } from '@prisma/client';
+import type { PaymentType, Role } from '@prisma/client';
 import crypto from 'node:crypto';
 import { prisma } from '../../config/prisma';
 import { env } from '../../config/env';
@@ -38,11 +38,12 @@ import { auditService } from '../audit/service';
 import { fireAndForget, notify } from '../notifications/triggers';
 import { paymentProvider } from '../../services/payment';
 import type { VerifiedWebhookEvent } from '../../services/payment';
+import { isBackOffice } from '../../modules/auth/roles';
 
 export interface PaymentActor {
   id: string;
   email: string;
-  role: 'CUSTOMER' | 'ADMIN' | 'STAFF';
+  role: Role;
   ipAddress?: string;
   userAgent?: string;
 }
@@ -51,17 +52,46 @@ export interface PaymentActor {
  * Which booking statuses accept which kind of payment.
  *
  * They differ, and the difference is operational rather than arbitrary. The
- * RENTAL is paid to GET a confirmation, so it only makes sense while the
- * booking is still waiting on payment. The DEPOSIT is taken at or after
- * confirmation - often at the counter on handover day - so it must remain
- * payable once the booking is CONFIRMED or READY_FOR_PICKUP.
+ * RENTAL is paid AFTER the booking is confirmed - confirmation is the company
+ * accepting the customer, not a receipt - so CONFIRMED is where most online
+ * payments now start from. The DEPOSIT is taken at or after confirmation,
+ * often at the counter on handover day, so it stays payable right up to
+ * READY_FOR_PICKUP.
  */
 const PAYABLE_STATUSES: Record<string, string[]> = {
-  RENTAL: ['PENDING', 'PAYMENT_PENDING'],
-  SECURITY_DEPOSIT: ['PAYMENT_PENDING', 'CONFIRMED', 'READY_FOR_PICKUP'],
+  RENTAL: ['PENDING', 'CONFIRMED', 'PAYMENT_PENDING'],
+  SECURITY_DEPOSIT: ['CONFIRMED', 'PAYMENT_PENDING', 'READY_FOR_PICKUP'],
   EXTENSION: ['ACTIVE', 'EXTENSION_REQUESTED'],
   ADDITIONAL_CHARGE: ['RETURN_PENDING', 'RETURNED', 'COMPLETED'],
 };
+
+/**
+ * Recompute a payment's refund status from its refund rows.
+ *
+ * Derived, never set by hand in two places. A payment is REFUNDED only when
+ * the refunds that actually COMPLETED add up to the whole amount; anything
+ * partial or still in flight leaves it PARTIALLY_REFUNDED. Marking a payment
+ * REFUNDED at the moment a refund is requested - which is what used to happen
+ * - claims money moved that a provider may still decline.
+ */
+async function syncPaymentRefundStatus(paymentId: string): Promise<void> {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: { refunds: true },
+  });
+  if (!payment) return;
+
+  const completed = payment.refunds
+    .filter((refund) => refund.status === 'COMPLETED')
+    .reduce((sum, refund) => sum.add(refund.amount), new Prisma.Decimal(0));
+
+  if (completed.lessThanOrEqualTo(0)) return;
+
+  await prisma.payment.update({
+    where: { id: paymentId },
+    data: { status: completed.greaterThanOrEqualTo(payment.amount) ? 'REFUNDED' : 'PARTIALLY_REFUNDED' },
+  });
+}
 
 export const paymentsService = {
   /**
@@ -201,12 +231,28 @@ export const paymentsService = {
     });
     if (!booking) throw ApiError.notFound('Booking not found');
 
-    const isBackOffice = actor.role === 'ADMIN' || actor.role === 'STAFF';
-    if (!isBackOffice && booking.customerId !== actor.id) {
+    const backOffice = isBackOffice(actor.role);
+    if (!backOffice && booking.customerId !== actor.id) {
       throw ApiError.notFound('Booking not found');
     }
 
-    const payableFrom = PAYABLE_STATUSES[type] ?? [];
+    /*
+     * A MONTHLY rental keeps taking rental payments long after collection.
+     *
+     * The upfront list stops at PAYMENT_PENDING, which is right when the whole
+     * rental is paid before the keys - but month four of a six-month term
+     * falls due while the car is out and the booking is ACTIVE. Held to the
+     * upfront list, a long-term customer simply could not pay, and the answer
+     * came back as "a ready for pickup booking cannot take a rental payment".
+     *
+     * Terminal statuses stay excluded: a finished or cancelled booking is not
+     * collecting more rent.
+     */
+    const payableFrom =
+      type === 'RENTAL' && booking.billingCycle === 'MONTHLY'
+        ? ['PENDING', 'CONFIRMED', 'PAYMENT_PENDING', 'READY_FOR_PICKUP', 'ACTIVE', 'EXTENSION_REQUESTED', 'RETURN_PENDING']
+        : (PAYABLE_STATUSES[type] ?? []);
+
     if (!payableFrom.includes(booking.status)) {
       throw ApiError.conflict(
         booking.status === 'DOCUMENT_VERIFICATION'
@@ -217,26 +263,91 @@ export const paymentsService = {
       );
     }
 
-    // The amount comes from the BOOKING, never from the request. The booking's
-    // total was itself computed by the pricing engine at creation time.
+    /*
+     * The amount comes from the BOOKING, never from the request.
+     *
+     * For a MONTHLY booking the rental is not one figure but a schedule, so
+     * the sum owed now is the OLDEST unpaid month - never the whole term.
+     * Asking a long-term customer for six months before they have the keys is
+     * the thing monthly billing exists to avoid.
+     */
+    let dueInstalment: {
+      id: string;
+      sequence: number;
+      amount: Prisma.Decimal;
+      extrasAmount: Prisma.Decimal;
+    } | null = null;
+
+    if (type === 'RENTAL' && booking.billingCycle === 'MONTHLY') {
+      dueInstalment = await prisma.rentalInstalment.findFirst({
+        where: { bookingId, status: { in: ['DUE', 'SCHEDULED'] } },
+        orderBy: { sequence: 'asc' },
+        select: { id: true, sequence: true, amount: true, extrasAmount: true },
+      });
+
+      if (!dueInstalment) {
+        throw ApiError.badRequest('Every month of this rental has been paid.');
+      }
+    }
+
+    /*
+     * A month's bill is the rent PLUS whatever was billed alongside it.
+     *
+     * Salik and fines on a long-term rental ride on the next invoice rather
+     * than eating the damage deposit (see fleet/finesService). If the checkout
+     * asked for `amount` alone it would collect the rent, mark the month paid,
+     * and silently drop the extras - the customer would be square and the
+     * company short, with nothing left pointing at the difference.
+     */
     const amount =
-      type === 'SECURITY_DEPOSIT' ? booking.securityDeposit : booking.totalAmount;
+      type === 'SECURITY_DEPOSIT'
+        ? booking.securityDeposit
+        : dueInstalment
+          ? dueInstalment.amount.add(dueInstalment.extrasAmount)
+          : booking.totalAmount;
 
     if (amount.lessThanOrEqualTo(0)) {
       throw ApiError.badRequest('There is nothing to pay for this booking');
     }
 
+    // Says WHICH month, so a customer with six charges from one rental can
+    // tell them apart on their card statement.
+    const paymentDescription =
+      type === 'SECURITY_DEPOSIT'
+        ? `Security deposit - ${booking.bookingNumber}`
+        : dueInstalment
+          ? `Rental month ${dueInstalment.sequence} - ${booking.bookingNumber}`
+          : `Rental - ${booking.bookingNumber}`;
+
     // An existing pending payment is reused rather than duplicated - a
     // customer clicking Pay twice must not create two charges.
     const existing = await prisma.payment.findFirst({
-      where: { bookingId, type, status: 'PENDING' },
+      where: {
+        bookingId,
+        type,
+        status: 'PENDING',
+        // A half-finished checkout for LAST month must not be handed back as
+        // this month's, or the customer pays one month twice and the schedule
+        // never advances.
+        ...(dueInstalment ? { instalment: { id: dueInstalment.id } } : {}),
+      },
     });
     if (existing?.providerPaymentId) {
+      /*
+       * A charge can land between abandoning a checkout and coming back to it,
+       * so the row's figure is re-stated before the customer is sent onward.
+       * Otherwise this month's Salik would be invisible to anyone reading the
+       * payment afterwards, even though the checkout asked for it.
+       */
+      if (!existing.amount.equals(amount)) {
+        await prisma.payment.update({ where: { id: existing.id }, data: { amount } });
+      }
+
       const session = await paymentProvider.createPayment({
         bookingNumber: booking.bookingNumber,
         amount: amount.toFixed(2),
         currency: booking.currency,
-        description: `${type === 'SECURITY_DEPOSIT' ? 'Security deposit' : 'Rental'} - ${booking.bookingNumber}`,
+        description: paymentDescription,
         idempotencyKey: existing.idempotencyKey,
         customerEmail: booking.customer.email,
         returnUrl: `${env.PAYMENT_RETURN_URL}/${booking.id}`,
@@ -260,6 +371,9 @@ export const paymentsService = {
         provider: paymentProvider.name,
         idempotencyKey,
         status: 'PENDING',
+        // Tied to the month it settles, so the schedule and the money can
+        // never disagree about which month was paid.
+        ...(dueInstalment ? { instalment: { connect: { id: dueInstalment.id } } } : {}),
       },
     });
 
@@ -267,7 +381,7 @@ export const paymentsService = {
       bookingNumber: booking.bookingNumber,
       amount: amount.toFixed(2),
       currency: booking.currency,
-      description: `${type === 'SECURITY_DEPOSIT' ? 'Security deposit' : 'Rental'} - ${booking.bookingNumber}`,
+      description: paymentDescription,
       idempotencyKey,
       customerEmail: booking.customer.email,
       returnUrl: `${env.PAYMENT_RETURN_URL}/${booking.id}`,
@@ -281,6 +395,33 @@ export const paymentsService = {
         providerReference: session.reference ?? null,
       },
     });
+
+    /*
+     * Move a confirmed booking onto the payment step.
+     *
+     * This does NOT claim the money has arrived - the payment row is still
+     * PENDING and only a verified webhook may mark it SUCCESS. It records
+     * that the customer has entered checkout, which is the difference between
+     * "confirmed, nothing owed yet acted on" and "paying right now", and it
+     * is what puts the booking on the payment step of their progress rail.
+     */
+    if (type === 'RENTAL' && booking.status === 'CONFIRMED') {
+      await prisma.$transaction(async (tx) => {
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: { status: 'PAYMENT_PENDING' },
+        });
+        await tx.bookingStatusHistory.create({
+          data: {
+            bookingId,
+            fromStatus: 'CONFIRMED',
+            toStatus: 'PAYMENT_PENDING',
+            changedById: actor.id,
+            reason: 'Checkout started',
+          },
+        });
+      });
+    }
 
     await auditService.record({
       action: 'payment.initiated',
@@ -339,6 +480,47 @@ export const paymentsService = {
         where: { provider: paymentProvider.name, eventId: event.eventId },
         data: { processedAt: new Date(), error: error ?? null },
       });
+
+    /*
+     * A REFUND outcome, not a payment one.
+     *
+     * Handled before anything below, because the checks that follow are about
+     * payments: they short-circuit on "already settled", which is exactly what
+     * a payment being refunded looks like. That is why refund webhooks were
+     * silently swallowed and every refund sat PENDING for ever - nothing in
+     * the system ever completed one.
+     */
+    if (event.providerRefundId) {
+      const refund = await prisma.refund.findFirst({
+        where: { providerRefundId: event.providerRefundId },
+      });
+
+      if (!refund) {
+        await markProcessed('Unknown refund reference');
+        return { handled: false, reason: 'unknown_refund' };
+      }
+
+      if (refund.status === 'COMPLETED' || refund.status === 'FAILED') {
+        await markProcessed();
+        return { handled: true, reason: 'already_settled' };
+      }
+
+      const succeeded = event.status === 'succeeded';
+      await prisma.refund.update({
+        where: { id: refund.id },
+        data: {
+          status: succeeded ? 'COMPLETED' : 'FAILED',
+          completedAt: succeeded ? new Date() : null,
+          failureReason: succeeded ? null : 'The provider reported the refund as failed',
+        },
+      });
+
+      if (succeeded) await syncPaymentRefundStatus(refund.paymentId);
+
+      await markProcessed();
+      logger.info('Refund outcome applied', { refundId: refund.id, succeeded });
+      return { handled: true, reason: succeeded ? 'refund_completed' : 'refund_failed' };
+    }
 
     if (!event.providerPaymentId) {
       await markProcessed('No providerPaymentId on the event');
@@ -423,6 +605,15 @@ export const paymentsService = {
    * the provider will retry.
    */
   async applySuccessfulPayment(paymentId: string): Promise<void> {
+    /*
+     * Set inside the transaction, acted on after it commits.
+     *
+     * Issuing the month's tax invoice takes the next number from a shared
+     * counter; doing that inside the payment transaction would let numbering
+     * contention roll back money that has already cleared at the gateway.
+     */
+    let invoiceThisInstalment: string | null = null;
+
     await prisma.$transaction(async (tx) => {
       const payment = await tx.payment.findUniqueOrThrow({
         where: { id: paymentId },
@@ -435,19 +626,67 @@ export const paymentsService = {
       });
 
       if (payment.type === 'RENTAL') {
-        // Only advance a booking that is actually waiting on payment. A
-        // late-arriving webhook must not drag an ACTIVE rental backwards.
-        if (payment.booking.status === 'PAYMENT_PENDING' || payment.booking.status === 'PENDING') {
+        /*
+         * A cleared rental payment makes the car collectable, so the booking
+         * lands on READY_FOR_PICKUP.
+         *
+         * It used to land on CONFIRMED, because confirmation was what payment
+         * bought. It no longer is - the booking was confirmed when its
+         * documents passed, and sending it back there would walk the customer
+         * BACKWARDS along their own progress rail after paying.
+         *
+         * Only a booking actually waiting on payment is advanced: a
+         * late-arriving webhook must not drag an ACTIVE rental backwards
+         * either.
+         */
+        /*
+         * A monthly booking settles ONE month, then re-checks.
+         *
+         * Marking the month paid has to happen whatever the booking's status
+         * is - month four clears while the rental is ACTIVE, long after the
+         * booking stopped being "awaiting payment".
+         */
+        const instalment = await tx.rentalInstalment.findUnique({
+          where: { paymentId: payment.id },
+        });
+
+        if (instalment) {
+          await tx.rentalInstalment.update({
+            where: { id: instalment.id },
+            data: { status: 'PAID', paidAt: new Date() },
+          });
+
+          // Anything billed with this month has now been paid with it, so it
+          // stops showing as owing. INVOICED is the honest state: it was
+          // settled on an invoice, not taken out of the deposit.
+          await tx.additionalCharge.updateMany({
+            where: { instalmentId: instalment.id, status: 'PENDING' },
+            data: { status: 'INVOICED' },
+          });
+
+          /*
+           * A paid month is a supply, and a supply needs a tax invoice.
+           *
+           * Noted here and issued AFTER the transaction commits: the invoice
+           * takes the next number from a shared counter, and holding that
+           * inside a payment transaction would let a slow mail server or a
+           * numbering contention roll back money that has already cleared.
+           */
+          invoiceThisInstalment = instalment.id;
+        }
+
+        const AWAITING = ['PENDING', 'CONFIRMED', 'PAYMENT_PENDING'];
+        if (AWAITING.includes(payment.booking.status)) {
           await tx.booking.update({
             where: { id: payment.bookingId },
-            data: { status: 'CONFIRMED', holdExpiresAt: null },
+            data: { status: 'READY_FOR_PICKUP', holdExpiresAt: null },
           });
 
           await tx.bookingStatusHistory.create({
             data: {
               bookingId: payment.bookingId,
               fromStatus: payment.booking.status,
-              toStatus: 'CONFIRMED',
+              toStatus: 'READY_FOR_PICKUP',
               changedById: null,
               reason: 'Payment received',
             },
@@ -494,6 +733,32 @@ export const paymentsService = {
       }
     });
 
+    /*
+     * A paid month is a supply, so it gets its own tax invoice.
+     *
+     * Detached and swallowed: the money has cleared and the month is marked
+     * paid whatever happens here. A failure leaves the month invoiceable by
+     * hand from the booking, which is a recoverable state - rolling back a
+     * settled payment is not.
+     */
+    if (invoiceThisInstalment) {
+      try {
+        // Imported here rather than at the top: invoices reach back into
+        // bookings and settings, and a static import would close the loop.
+        const { invoicesService } = await import('../invoices/service');
+        await invoicesService.issueForInstalment(invoiceThisInstalment, {
+          id: null,
+          email: 'system',
+          role: 'ADMIN',
+        });
+      } catch (error) {
+        logger.warn('Could not issue the invoice for a paid month', {
+          instalmentId: invoiceThisInstalment,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     const payment = await prisma.payment.findUniqueOrThrow({
       where: { id: paymentId },
       include: { booking: { select: { bookingNumber: true } } },
@@ -510,12 +775,16 @@ export const paymentsService = {
       },
     });
 
-    // Detached on purpose. The money has arrived and the booking is confirmed;
-    // a mail server being down must not undo either of those.
+    /*
+     * Detached on purpose: the money has arrived, and a mail server being down
+     * must not undo that.
+     *
+     * Only the receipt goes out. The "booking confirmed" message was sent when
+     * the booking was confirmed - which now happens before payment - so
+     * sending it again here would tell the customer a second time about
+     * something that happened days ago.
+     */
     fireAndForget(notify.paymentReceived(paymentId));
-    if (payment.type === 'RENTAL') {
-      fireAndForget(notify.bookingConfirmed(payment.bookingId));
-    }
 
     logger.info('Payment applied', { paymentId, type: payment.type });
   },
@@ -534,28 +803,12 @@ export const paymentsService = {
   ) {
     const payment = await prisma.payment.findUnique({
       where: { id: paymentId },
-      include: { refunds: true, booking: { select: { bookingNumber: true } } },
+      include: { booking: { select: { bookingNumber: true } } },
     });
     if (!payment) throw ApiError.notFound('Payment not found');
 
     if (payment.status !== 'SUCCESS' && payment.status !== 'PARTIALLY_REFUNDED') {
       throw ApiError.conflict('Only a successful payment can be refunded');
-    }
-
-    const alreadyRefunded = payment.refunds
-      .filter((refund) => refund.status !== 'FAILED')
-      .reduce((sum, refund) => sum.add(refund.amount), new Prisma.Decimal(0));
-
-    const remaining = payment.amount.sub(alreadyRefunded);
-    const amount = input.amount ? new Prisma.Decimal(input.amount) : remaining;
-
-    if (amount.lessThanOrEqualTo(0)) {
-      throw ApiError.badRequest('The refund amount must be greater than zero');
-    }
-    if (amount.greaterThan(remaining)) {
-      throw ApiError.badRequest(
-        `Only ${remaining.toFixed(2)} ${payment.currency} remains refundable on this payment`,
-      );
     }
 
     if (!payment.providerPaymentId) {
@@ -566,38 +819,94 @@ export const paymentsService = {
       );
     }
 
-    const result = await paymentProvider.refundPayment({
-      providerPaymentId: payment.providerPaymentId,
-      amount: amount.toFixed(2),
-      reason: input.reason,
-      idempotencyKey: crypto.randomUUID(),
-    });
+    /*
+     * ===================================================================
+     * CLAIM FIRST, THEN CALL THE PROVIDER
+     * ===================================================================
+     * This used to read the existing refunds, work out what was left,
+     * validate against it, call the gateway, and only then write a row. Two
+     * admins refunding at the same moment both read the same "remaining",
+     * both passed, and both sent real money - and because the gateway had
+     * already moved it, no database guard could take it back.
+     *
+     * So the row is created FIRST, inside a transaction that locks the
+     * payment. `FOR UPDATE` makes concurrent refunds queue rather than race:
+     * the second one re-reads the refunds with the first already committed,
+     * finds less remaining, and is refused before anything is sent.
+     *
+     * The claim starts PENDING. That is not a formality - a PENDING refund
+     * still counts against the cap, so an in-flight refund cannot be
+     * double-spent, and a provider failure below marks it FAILED, which is
+     * the one status excluded from the sum.
+     */
+    const claim = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM payments WHERE id = ${paymentId}::uuid FOR UPDATE`;
 
-    const refund = await prisma.$transaction(async (tx) => {
-      const created = await tx.refund.create({
+      const existing = await tx.refund.findMany({ where: { paymentId } });
+      const alreadyRefunded = existing
+        .filter((refund) => refund.status !== 'FAILED')
+        .reduce((sum, refund) => sum.add(refund.amount), new Prisma.Decimal(0));
+
+      const remaining = payment.amount.sub(alreadyRefunded);
+      const amount = input.amount ? new Prisma.Decimal(input.amount) : remaining;
+
+      if (amount.lessThanOrEqualTo(0)) {
+        throw ApiError.badRequest('The refund amount must be greater than zero');
+      }
+      if (amount.greaterThan(remaining)) {
+        throw ApiError.badRequest(
+          `Only ${remaining.toFixed(2)} ${payment.currency} remains refundable on this payment`,
+        );
+      }
+
+      return tx.refund.create({
         data: {
           paymentId,
           amount,
-          reason: input.reason ?? null,
-          providerRefundId: result.providerRefundId,
+          reason: input.reason?.trim() ?? null,
           initiatedById: actor.id,
-          // PENDING until the provider confirms by webhook. Marking it
-          // COMPLETED here would claim money moved that has not moved.
-          status: result.status === 'succeeded' ? 'COMPLETED' : 'PENDING',
-          completedAt: result.status === 'succeeded' ? new Date() : null,
+          status: 'PENDING',
         },
       });
-
-      const totalRefunded = alreadyRefunded.add(amount);
-      await tx.payment.update({
-        where: { id: paymentId },
-        data: {
-          status: totalRefunded.equals(payment.amount) ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
-        },
-      });
-
-      return created;
     });
+
+    // Outside the transaction on purpose: never hold a row lock across a
+    // network call to a third party.
+    let result;
+    try {
+      result = await paymentProvider.refundPayment({
+        providerPaymentId: payment.providerPaymentId,
+        amount: claim.amount.toFixed(2),
+        reason: input.reason,
+        idempotencyKey: claim.id,
+      });
+    } catch (error) {
+      // The claim must not sit PENDING forever holding capacity the customer
+      // could still be refunded.
+      await prisma.refund.update({
+        where: { id: claim.id },
+        data: {
+          status: 'FAILED',
+          failureReason: error instanceof Error ? error.message : String(error),
+        },
+      });
+      throw error;
+    }
+
+    const refund = await prisma.refund.update({
+      where: { id: claim.id },
+      data: {
+        providerRefundId: result.providerRefundId,
+        // COMPLETED only if the provider says the money has actually moved.
+        // Otherwise it stays PENDING until the refund webhook says so.
+        status: result.status === 'succeeded' ? 'COMPLETED' : 'PENDING',
+        completedAt: result.status === 'succeeded' ? new Date() : null,
+      },
+    });
+
+    if (refund.status === 'COMPLETED') {
+      await syncPaymentRefundStatus(paymentId);
+    }
 
     await auditService.record({
       action: 'payment.refunded',
@@ -608,8 +917,9 @@ export const paymentsService = {
       entityId: refund.id,
       metadata: {
         bookingNumber: payment.booking.bookingNumber,
-        amount: amount.toFixed(2),
+        amount: claim.amount.toFixed(2),
         reason: input.reason,
+        status: refund.status,
       },
       ipAddress: actor.ipAddress,
       userAgent: actor.userAgent,
@@ -619,6 +929,79 @@ export const paymentsService = {
   },
 
   /** Payments for one booking. Ownership is checked by the caller. */
+  /**
+   * Every payment, newest first, for the back office.
+   *
+   * There was no way to answer "what came in today" without opening bookings
+   * one at a time. Filtered by status and type because the two questions
+   * anybody actually asks are "what failed" and "what deposits are sitting
+   * with us".
+   */
+  async list(query: {
+    page: number;
+    limit: number;
+    status?: string;
+    type?: string;
+    search?: string;
+  }) {
+    const where: Prisma.PaymentWhereInput = {
+      ...(query.status ? { status: query.status as never } : {}),
+      ...(query.type ? { type: query.type as never } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { booking: { bookingNumber: { contains: query.search, mode: 'insensitive' } } },
+              { booking: { customer: { fullName: { contains: query.search, mode: 'insensitive' } } } },
+              { providerReference: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await prisma.$transaction([
+      prisma.payment.findMany({
+        where,
+        include: {
+          booking: {
+            select: { bookingNumber: true, customer: { select: { fullName: true, email: true } } },
+          },
+          refunds: { select: { amount: true, status: true } },
+          instalment: { select: { sequence: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      prisma.payment.count({ where }),
+    ]);
+
+    return {
+      items: items.map((payment) => ({
+        id: payment.id,
+        bookingId: payment.bookingId,
+        bookingNumber: payment.booking.bookingNumber,
+        customerName: payment.booking.customer.fullName,
+        customerEmail: payment.booking.customer.email,
+        type: payment.type,
+        status: payment.status,
+        amount: payment.amount.toFixed(2),
+        currency: payment.currency,
+        provider: payment.provider,
+        reference: payment.providerReference,
+        failureReason: payment.failureReason,
+        /** Which month of a long-term rental this settled, if any. */
+        instalmentSequence: payment.instalment?.sequence ?? null,
+        refundedTotal: payment.refunds
+          .filter((refund) => refund.status === 'COMPLETED')
+          .reduce((sum, refund) => sum.add(refund.amount), new Prisma.Decimal(0))
+          .toFixed(2),
+        paidAt: payment.paidAt?.toISOString() ?? null,
+        createdAt: payment.createdAt.toISOString(),
+      })),
+      total,
+    };
+  },
+
   async listForBooking(bookingId: string) {
     return prisma.payment.findMany({
       where: { bookingId },

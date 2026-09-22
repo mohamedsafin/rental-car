@@ -13,8 +13,26 @@ import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useUpdateUser, useUsers } from '../features/users/useUsers';
 import type { Role, UserStatus } from '../types/auth';
+import { useAdminLocations } from '../features/fleet/useFleetAdmin';
 
-const ROLES: Role[] = ['CUSTOMER', 'STAFF', 'ADMIN'];
+const ROLES: Role[] = ['CUSTOMER', 'STAFF', 'MANAGER', 'ACCOUNTANT', 'INSPECTOR', 'ADMIN'];
+
+/**
+ * What each role actually gets to do.
+ *
+ * Shown beside the dropdown because "ACCOUNTANT" on its own tells whoever is
+ * changing somebody's role nothing about what they are granting or taking
+ * away, and a permission set chosen by guesswork is the reason roles like
+ * these get ignored.
+ */
+const ROLE_HELP: Record<Role, string> = {
+  CUSTOMER: 'Rents cars. Sees only their own bookings, documents and invoices.',
+  STAFF: 'The counter. Bookings, customers, handovers, returns, payments and deposits.',
+  MANAGER: 'Everything the counter can do, plus pricing, reports and promo codes.',
+  ACCOUNTANT: 'Money only - payments, deposits, invoices and reports. No car handovers.',
+  INSPECTOR: 'Handovers, returns, inspections and damage. Nothing financial.',
+  ADMIN: 'Everything, including users, settings, legal documents and the audit trail.',
+};
 const STATUSES: UserStatus[] = ['ACTIVE', 'SUSPENDED', 'DEACTIVATED'];
 
 export default function UsersPage() {
@@ -24,9 +42,13 @@ export default function UsersPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const { data, isPending, isError, error } = useUsers({ page, limit: 20, search: search || undefined });
+  const { data: locations } = useAdminLocations();
   const updateUser = useUpdateUser();
 
-  function applyChange(id: string, changes: { role?: Role; status?: UserStatus }) {
+  function applyChange(
+    id: string,
+    changes: { role?: Role; status?: UserStatus; branchId?: string },
+  ) {
     setActionError(null);
     updateUser.mutate({ id, changes }, { onError: (err) => setActionError(err.message) });
   }
@@ -71,13 +93,14 @@ export default function UsersPage() {
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Email</th>
               <th className="px-4 py-3">Role</th>
+              <th className="px-4 py-3">Branch</th>
               <th className="px-4 py-3">Status</th>
             </tr>
           </thead>
           <tbody>
             {isPending && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                   Loading users…
                 </td>
               </tr>
@@ -104,6 +127,32 @@ export default function UsersPage() {
                       </option>
                     ))}
                   </select>
+                  <p className="mt-1 max-w-[260px] text-xs text-slate-500">
+                    {ROLE_HELP[row.role]}
+                  </p>
+                </td>
+                <td className="px-4 py-3">
+                  {/*
+                    Only for staff. A customer belongs to no branch, and a
+                    dropdown offering to put them in one would just be a way to
+                    create nonsense data.
+                  */}
+                  {row.role === 'CUSTOMER' ? (
+                    <span className="text-xs text-slate-400">—</span>
+                  ) : (
+                    <select
+                      value={row.branchId ?? ''}
+                      onChange={(event) => applyChange(row.id, { branchId: event.target.value })}
+                      className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    >
+                      <option value="">Head office</option>
+                      {locations?.locations.map((location) => (
+                        <option key={location.id} value={location.id}>
+                          {location.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <select
@@ -123,7 +172,7 @@ export default function UsersPage() {
 
             {data?.items.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                   No users match that search.
                 </td>
               </tr>

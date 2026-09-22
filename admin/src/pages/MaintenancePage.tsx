@@ -16,7 +16,7 @@ import {
   useScheduleMaintenance,
   useUpdateMaintenanceStatus,
 } from '../features/fleetOps/useFleetOps';
-import { useAdminVehicles } from '../features/fleet/useFleetAdmin';
+import { useVehicleOptions } from '../features/fleet/useFleetAdmin';
 import FormField from '../components/FormField';
 
 const TYPES = ['ROUTINE_SERVICE', 'REPAIR', 'TYRE_CHANGE', 'BODYWORK', 'INSPECTION', 'OTHER'];
@@ -58,7 +58,7 @@ export default function MaintenancePage() {
   const [error, setError] = useState<string | null>(null);
 
   const { data, isPending } = useMaintenance({ page, limit: 20, status: status || undefined });
-  const { data: vehicles } = useAdminVehicles({ page: 1, limit: 100 });
+  const { data: vehicles } = useVehicleOptions();
   const schedule = useScheduleMaintenance();
   const updateStatus = useUpdateMaintenanceStatus();
 
@@ -138,7 +138,7 @@ export default function MaintenancePage() {
                 className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 <option value="">Select a vehicle</option>
-                {(vehicles?.items ?? []).map((vehicle) => (
+                {(vehicles ?? []).map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>
                     {vehicle.brand} {vehicle.model} ({vehicle.registrationNumber})
                   </option>

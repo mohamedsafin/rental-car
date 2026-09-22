@@ -13,10 +13,17 @@
  * says which cars to chase.
  */
 import { useSearchParams, Link } from 'react-router-dom';
-import { useReturns, dayBounds } from '../features/operations/useOperations';
+import {
+  useReturns,
+  useNextScheduledDay,
+  dayBounds,
+  localDate,
+  RETURN_STATUSES,
+} from '../features/operations/useOperations';
 
+/** The board opens on the local day, not the UTC one - see `localDate`. */
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDate();
 }
 
 function timeOf(iso: string): string {
@@ -32,7 +39,7 @@ export default function ReturnsPage() {
   const [params, setParams] = useSearchParams();
   const date = params.get('date') ?? today();
 
-  const { data, isPending } = useReturns(dayBounds(date));
+  const { items: rows, isPending, isError, refetch } = useReturns(dayBounds(date));
 
   function setDate(value: string) {
     const next = new URLSearchParams(params);
@@ -41,7 +48,7 @@ export default function ReturnsPage() {
     setParams(next);
   }
 
-  const items = [...(data?.items ?? [])].sort(
+  const items = [...rows].sort(
     (a, b) => new Date(a.period.returnAt).getTime() - new Date(b.period.returnAt).getTime(),
   );
 
@@ -87,10 +94,21 @@ export default function ReturnsPage() {
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         {isPending && <p className="px-5 py-8 text-sm text-slate-500">Loading...</p>}
 
-        {!isPending && items.length === 0 && (
-          <p className="px-5 py-10 text-center text-sm text-slate-500">
-            Nothing due back on {date}.
-          </p>
+        {!isPending && isError && (
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm font-medium text-red-700">Could not load the returns board.</p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="mt-3 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {!isPending && !isError && items.length === 0 && (
+          <EmptyDay date={date} onJump={setDate} />
         )}
 
         {items.length > 0 && (
@@ -158,7 +176,52 @@ export default function ReturnsPage() {
         )}
       </div>
 
-      {data && <p className="text-xs text-slate-500">{data.pagination.total} due back on {date}.</p>}
+      {!isPending && !isError && items.length > 0 && (
+        <p className="text-xs text-slate-500">
+          {items.length} due back on {date}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The empty state for a quiet day.
+ *
+ * Naming the next day that has a car due back is what separates "nothing today"
+ * from "this board is broken" - a distinction staff were otherwise left to work
+ * out by clicking through the date picker one day at a time.
+ */
+function EmptyDay({ date, onJump }: { date: string; onJump: (date: string) => void }) {
+  const { date: nextDate, isPending } = useNextScheduledDay(date, RETURN_STATUSES, 'return', true);
+
+  return (
+    <div className="px-5 py-12 text-center">
+      <p className="text-sm font-medium text-slate-700">Nothing due back on {date}.</p>
+
+      {isPending && <p className="mt-1 text-sm text-slate-400">Checking the weeks ahead...</p>}
+
+      {!isPending && nextDate && (
+        <>
+          <p className="mt-1 text-sm text-slate-500">
+            The next return is due on <span className="font-medium text-slate-700">{nextDate}</span>.
+          </p>
+          <button
+            type="button"
+            onClick={() => onJump(nextDate)}
+            className="mt-4 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            Go to {nextDate}
+          </button>
+        </>
+      )}
+
+      {!isPending && !nextDate && (
+        <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
+          No cars are currently out on hire, so nothing is due back. Rentals appear here once a
+          vehicle has been handed over.
+        </p>
+      )}
     </div>
   );
 }

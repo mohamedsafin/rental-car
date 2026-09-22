@@ -39,9 +39,17 @@ export class MockPaymentProvider implements PaymentProvider {
 
     return {
       providerPaymentId,
-      // A real provider returns its own hosted checkout page. Ours points at a
-      // local simulator so the flow can be walked end to end.
-      checkoutUrl: `${env.PUBLIC_API_URL}/api/v1/payments/mock-checkout/${providerPaymentId}`,
+      /*
+       * A real provider returns its own hosted checkout page. Ours points at a
+       * local simulator so the flow can be walked end to end.
+       *
+       * NOTE the path: the simulator is mounted on the API v1 router itself,
+       * NOT under /payments. It used to be advertised as
+       * `/api/v1/payments/mock-checkout/...`, which does not exist - so every
+       * "Pay" button in development led to a 401 from the payments router's
+       * auth guard, and the demo could never get past the payment step.
+       */
+      checkoutUrl: `${env.PUBLIC_API_URL}/api/v1/mock-checkout/${providerPaymentId}`,
       status: 'pending',
       reference: input.bookingNumber,
     };
@@ -102,8 +110,14 @@ export class MockPaymentProvider implements PaymentProvider {
     const parsed = JSON.parse(rawBody.toString('utf8')) as Record<string, unknown>;
 
     return {
-      eventId: String(parsed.eventId ?? crypto.randomUUID()),
-      type: String(parsed.type ?? 'payment.unknown'),
+      /*
+       * A webhook body is whatever arrived on the wire, so every field here is
+       * `unknown` until proven otherwise. Taking the value only when it is
+       * genuinely a string - rather than String()-ing it - means a nested
+       * object arrives as the fallback instead of as "[object Object]".
+       */
+      eventId: typeof parsed.eventId === 'string' ? parsed.eventId : crypto.randomUUID(),
+      type: typeof parsed.type === 'string' ? parsed.type : 'payment.unknown',
       providerPaymentId: parsed.providerPaymentId as string | undefined,
       providerRefundId: parsed.providerRefundId as string | undefined,
       status: (parsed.status as VerifiedWebhookEvent['status']) ?? 'pending',

@@ -14,7 +14,7 @@
  * never going to work.
  */
 import { Prisma } from '@prisma/client';
-import type { Coupon } from '@prisma/client';
+import type { Coupon, Role } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { ApiError } from '../../utils/ApiError';
 import { auditService } from '../audit/service';
@@ -23,7 +23,7 @@ import { ZERO, money } from '../pricing/calculator';
 export interface CouponActor {
   id: string;
   email: string;
-  role: 'CUSTOMER' | 'ADMIN' | 'STAFF';
+  role: Role;
   ipAddress?: string;
   userAgent?: string;
 }

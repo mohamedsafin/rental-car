@@ -38,6 +38,21 @@ export async function createUser(options: {
       fullName: options.fullName ?? 'Test User',
       role: options.role ?? 'CUSTOMER',
       status: options.status ?? 'ACTIVE',
+      /*
+       * Every test customer is comfortably old enough to drive.
+       *
+       * The minimum rental age is a CLIENT SETTING, so it is blank on a fresh
+       * install and set to a real number on a running one - and the whole
+       * suite shares a database with whatever value is there. Without a date
+       * of birth here, somebody typing 18 into the settings screen broke
+       * seventy-eight unrelated tests, none of which are about age.
+       *
+       * A fixed date rather than "thirty years ago": a test fixture that
+       * moves with the clock is a test that fails on one particular day.
+       */
+      customer: {
+        create: { dateOfBirth: new Date('1990-01-15') },
+      },
     },
   });
 }
@@ -72,4 +87,37 @@ export async function cleanupUsers(emails: string[]): Promise<void> {
   await prisma.refreshToken.deleteMany({ where: { userId: { in: ids } } });
   await prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } });
   await prisma.user.deleteMany({ where: { id: { in: ids } } });
+}
+
+/**
+ * Put a cleared rental payment on a booking, without going near a gateway.
+ *
+ * Since confirmation moved ahead of payment, "paid" is no longer implied by
+ * any status - a booking is paid when a SUCCESS payment row says so, and both
+ * the READY_FOR_PICKUP transition and the handover check for exactly that.
+ * Tests about rentals, invoices or reports should not have to drive a webhook
+ * to get past those gates, so they write the row directly.
+ *
+ * Returns the payment id for tests that need to refund or inspect it.
+ */
+export async function payRental(bookingId: string): Promise<string> {
+  const booking = await prisma.booking.findUniqueOrThrow({
+    where: { id: bookingId },
+    select: { totalAmount: true, currency: true },
+  });
+
+  const payment = await prisma.payment.create({
+    data: {
+      bookingId,
+      type: 'RENTAL',
+      status: 'SUCCESS',
+      amount: booking.totalAmount,
+      currency: booking.currency,
+      provider: 'test',
+      idempotencyKey: `test-${bookingId}-${Date.now()}`,
+      paidAt: new Date(),
+    },
+  });
+
+  return payment.id;
 }

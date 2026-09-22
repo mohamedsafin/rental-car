@@ -29,6 +29,31 @@ export const registerSchema = z
       .regex(/[A-Z]/, 'Include an uppercase letter')
       .regex(/[0-9]/, 'Include a number'),
     confirmPassword: z.string().min(1, 'Please confirm your password'),
+    /*
+     * Asked here rather than at booking.
+     *
+     * It used to be collected on the profile page, so the first time most
+     * customers were asked was halfway through a booking - car chosen, dates
+     * picked, and then a stop to fill in a form. One field on a form somebody
+     * is already completing is a far smaller ask than an interruption at the
+     * moment they are trying to pay.
+     *
+     * The bounds only reject dates that cannot describe a living driver. The
+     * real minimum rental age is a business setting checked at booking time
+     * against the pickup date, which is a different question from whether
+     * somebody may hold an account.
+     */
+    dateOfBirth: z
+      .string()
+      .min(1, 'Date of birth is required')
+      .refine(
+        (value) => {
+          const years =
+            (Date.now() - new Date(value).getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+          return years >= 16 && years <= 110;
+        },
+        { message: 'Enter a valid date of birth' },
+      ),
     phone: z
       .string()
       .regex(/^\+?[1-9]\d{7,14}$/, 'Enter a valid mobile number, e.g. +971501234567')
@@ -43,5 +68,28 @@ export const registerSchema = z
     path: ['confirmPassword'],
   });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().min(1, 'Email is required').email('Enter a valid email address'),
+});
+
+export const resetPasswordSchema = z
+  .object({
+    // The same rules the backend enforces on a reset. Mirrored so somebody
+    // choosing a new password is told as they type, not after a round trip.
+    password: z
+      .string()
+      .min(8, 'Password must be at least 8 characters')
+      .regex(/[a-z]/, 'Include a lowercase letter')
+      .regex(/[A-Z]/, 'Include an uppercase letter')
+      .regex(/[0-9]/, 'Include a number'),
+    confirmPassword: z.string().min(1, 'Please confirm your password'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+
+export type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
 export type LoginFormValues = z.infer<typeof loginSchema>;
 export type RegisterFormValues = z.infer<typeof registerSchema>;

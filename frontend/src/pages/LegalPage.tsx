@@ -47,28 +47,28 @@ function Markdown({ content }: { content: string }) {
   const blocks = content.split(/\n{2,}/);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {blocks.map((block, index) => {
         const trimmed = block.trim();
         if (!trimmed) return null;
 
         if (trimmed.startsWith('### ')) {
           return (
-            <h3 key={index} className="mt-6 text-base font-semibold text-ink-900">
+            <h3 key={index} className="pt-4 text-base font-semibold text-ink-950">
               {trimmed.slice(4)}
             </h3>
           );
         }
         if (trimmed.startsWith('## ')) {
           return (
-            <h2 key={index} className="mt-8 text-lg font-bold text-ink-900">
+            <h2 key={index} className="pt-8 text-xl font-semibold tracking-tight text-ink-950">
               {trimmed.slice(3)}
             </h2>
           );
         }
         if (trimmed.startsWith('# ')) {
           return (
-            <h2 key={index} className="mt-8 text-xl font-bold text-ink-900">
+            <h2 key={index} className="pt-8 text-2xl font-semibold tracking-tight text-ink-950">
               {trimmed.slice(2)}
             </h2>
           );
@@ -77,7 +77,7 @@ function Markdown({ content }: { content: string }) {
         const lines = trimmed.split('\n');
         if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
           return (
-            <ul key={index} className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-ink-600">
+            <ul key={index} className="list-disc space-y-2 pl-5 text-[15px] leading-7 text-ink-600 marker:text-ink-300">
               {lines.map((line, lineIndex) => (
                 <li key={lineIndex}>{line.replace(/^\s*[-*]\s+/, '')}</li>
               ))}
@@ -86,7 +86,7 @@ function Markdown({ content }: { content: string }) {
         }
 
         return (
-          <p key={index} className="text-sm leading-relaxed text-ink-600">
+          <p key={index} className="text-[15px] leading-7 text-ink-600">
             {trimmed}
           </p>
         );
@@ -108,55 +108,69 @@ export default function LegalPage() {
 
   if (!type) {
     return (
-      <div className="rounded-card border border-ink-200 bg-white p-10 text-center">
-        <p className="font-medium text-ink-800">Unknown document</p>
-        <Link to="/" className="mt-3 inline-block text-sm text-ink-900 underline">
-          Back to the home page
-        </Link>
+      <div className="page-container pt-14">
+        <div className="mx-auto max-w-2xl rounded-card border border-dashed border-ink-300 px-6 py-14 text-center">
+          <p className="text-lg font-semibold text-ink-950">Unknown document</p>
+          <Link to="/" className="link-arrow mt-3">
+            Back to the home page
+          </Link>
+        </div>
       </div>
     );
   }
 
   if (isPending) {
-    return <div className="h-96 animate-pulse rounded-card bg-ink-100" />;
+    return (
+      <div className="page-container pt-14" aria-busy="true">
+        <div className="mx-auto max-w-3xl animate-pulse space-y-4">
+          <div className="h-12 w-2/3 rounded-lg bg-ink-100" />
+          <div className="h-80 rounded-card bg-ink-100" />
+        </div>
+      </div>
+    );
   }
 
   if (isError) {
     return (
-      <div className="mx-auto max-w-2xl rounded-card border border-dashed border-ink-200 bg-white p-10 text-center">
-        <p className="font-medium text-ink-800">
-          {error.status === 404 ? 'Not published yet' : 'Could not load this document'}
-        </p>
-        <p className="mx-auto mt-2 max-w-md text-sm text-ink-500">
-          {error.status === 404
-            ? 'This policy has not been published. Please contact us if you need a copy before booking.'
-            : error.message}
-        </p>
-        <Link to="/" className="mt-5 inline-block text-sm font-medium text-ink-900 underline">
-          Back to the home page
-        </Link>
+      <div className="page-container pt-14">
+        <div className="mx-auto max-w-2xl rounded-card border border-dashed border-ink-300 px-6 py-14 text-center">
+          <p className="text-lg font-semibold text-ink-950">
+            {error.status === 404 ? 'Not published yet' : 'Could not load this document'}
+          </p>
+          <p className="mx-auto mt-2 max-w-md text-sm text-ink-500">
+            {error.status === 404
+              ? 'This policy has not been published. Please contact us if you need a copy before booking.'
+              : error.message}
+          </p>
+          <Link to="/" className="link-arrow mt-5">
+            Back to the home page
+          </Link>
+        </div>
       </div>
     );
   }
 
   return (
-    <article className="mx-auto max-w-3xl">
-      <header className="border-b border-ink-100 pb-5">
-        <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">{data.title}</h1>
-        <p className="mt-2 text-xs text-ink-500">
-          Version {data.version}
-          {data.effectiveFrom ? ` · in effect from ${data.effectiveFrom.slice(0, 10)}` : ''}
+    <div className="page-container pt-10 sm:pt-14">
+      <article className="mx-auto max-w-3xl">
+        <header className="border-b border-ink-100 pb-8">
+          <p className="section-eyebrow">Legal</p>
+          <h1 className="display-heading mt-4 text-[2.25rem] sm:text-5xl">{data.title}</h1>
+          <p className="tabular mt-4 text-sm text-ink-500">
+            Version {data.version}
+            {data.effectiveFrom ? ` · in effect from ${data.effectiveFrom.slice(0, 10)}` : ''}
+          </p>
+        </header>
+
+        <div className="mt-8">
+          <Markdown content={data.content} />
+        </div>
+
+        <p className="mt-14 border-t border-ink-100 pt-6 text-xs leading-relaxed text-ink-500">
+          Your booking records the version of this document that was live when you made it, so what
+          you agreed to does not change when this page does.
         </p>
-      </header>
-
-      <div className="mt-6">
-        <Markdown content={data.content} />
-      </div>
-
-      <p className="mt-10 border-t border-ink-100 pt-5 text-xs text-ink-400">
-        Your booking records the version of this document that was live when you made it, so what
-        you agreed to does not change when this page does.
-      </p>
-    </article>
+      </article>
+    </div>
   );
 }

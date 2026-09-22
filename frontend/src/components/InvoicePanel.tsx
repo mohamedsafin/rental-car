@@ -14,6 +14,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Download } from 'lucide-react';
 import { api, getData } from '../services/api';
 import type { NormalisedApiError, PaginatedData } from '../types/api';
 
@@ -66,20 +67,22 @@ export default function InvoicePanel({ bookingId }: { bookingId: string }) {
   }
 
   return (
-    <section className="rounded-card border border-ink-200 bg-white p-5">
-      <h2 className="font-semibold text-ink-900">Invoices</h2>
+    <section aria-labelledby="invoices-title" className="surface p-5 sm:p-6">
+      <h2 id="invoices-title" className="text-[15px] font-semibold text-ink-950">
+        Invoices
+      </h2>
 
       {error && (
-        <p role="alert" className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
           {error}
         </p>
       )}
 
-      <ul className="mt-4 divide-y divide-ink-100">
+      <ul className="mt-3 divide-y divide-ink-100">
         {invoices.map((invoice) => (
-          <li key={invoice.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+          <li key={invoice.id} className="flex flex-wrap items-center justify-between gap-3 py-3.5">
             <div>
-              <p className="font-mono text-sm font-medium text-ink-900">
+              <p className="font-mono text-sm font-medium text-ink-950">
                 {invoice.invoiceNumber}
                 {invoice.type === 'CREDIT_NOTE' && (
                   <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 font-sans text-xs font-medium text-amber-800">
@@ -94,24 +97,23 @@ export default function InvoicePanel({ bookingId }: { bookingId: string }) {
               </p>
               <p className="mt-0.5 text-xs text-ink-500">
                 Issued {invoice.issuedAt.slice(0, 10)}
-                {invoice.taxPercentage
-                  ? ` · includes ${invoice.currency} ${invoice.taxTotal} VAT`
-                  : ''}
+                {invoice.taxPercentage ? ` · includes ${invoice.currency} ${invoice.taxTotal} VAT` : ''}
                 {invoice.reason ? ` · ${invoice.reason}` : ''}
               </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="text-sm font-semibold text-ink-900">
+              <span className="tabular text-sm font-semibold text-ink-950">
                 {invoice.currency} {invoice.total}
               </span>
               <button
                 type="button"
                 disabled={busyId === invoice.id}
                 onClick={() => download(invoice)}
-                className="rounded-lg border border-ink-300 px-3 py-1.5 text-xs font-medium text-ink-700 transition hover:border-ink-400 disabled:opacity-60"
+                className="btn btn-outline btn-sm"
               >
-                {busyId === invoice.id ? 'Preparing...' : 'Download PDF'}
+                <Download aria-hidden className="h-3.5 w-3.5" />
+                {busyId === invoice.id ? 'Preparing…' : 'PDF'}
               </button>
             </div>
           </li>

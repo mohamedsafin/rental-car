@@ -28,6 +28,19 @@ import { apiV1Router } from './routes';
 import { storage, LocalStorageProvider } from './services/storage';
 import { ApiError, ErrorCode } from './utils/ApiError';
 
+/**
+ * The API's own origin, as a browser would send it: scheme, host and port,
+ * never a path or trailing slash. Derived rather than configured, so it cannot
+ * drift from PUBLIC_API_URL.
+ */
+const SELF_ORIGIN = (() => {
+  try {
+    return new URL(env.PUBLIC_API_URL).origin;
+  } catch {
+    return null;
+  }
+})();
+
 export function createApp(): Application {
   const app = express();
 
@@ -54,9 +67,20 @@ export function createApp(): Application {
   app.use(
     cors({
       origin(origin, callback) {
-        // No origin = server-to-server, curl, or same-origin. Allow it;
+        // No Origin header at all = server-to-server or curl. Allow it;
         // browsers are the only clients CORS protects.
+        //
+        // NOTE it does NOT mean "same-origin". A browser sends `Origin` on
+        // every POST, including one to the very host that served the page, so
+        // a same-origin form post arrives here with an Origin to check like
+        // any other. That is what blocked the mock checkout's Pay button: the
+        // page is served BY the API, posts back to the API, and the API's own
+        // origin was not on the allowlist - so the browser got a 403 while
+        // curl sailed through, because curl sends no Origin at all.
         if (!origin) return callback(null, true);
+        // Our own origin is same-origin by definition. CORS exists to keep
+        // OTHER origins out; refusing ourselves protects nobody.
+        if (SELF_ORIGIN && origin === SELF_ORIGIN) return callback(null, true);
         if (env.CORS_ORIGINS.includes(origin)) return callback(null, true);
         logger.warn('Blocked CORS origin', { origin });
         // A blocked origin is expected traffic, not a server fault. Returning a

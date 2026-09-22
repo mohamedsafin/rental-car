@@ -8,8 +8,11 @@
  * rentals, and Back works.
  */
 import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowRight, CalendarDays, CarFront } from 'lucide-react';
 import BookingStatusBadge from '../components/BookingStatusBadge';
+import PageHeader from '../components/PageHeader';
 import { useMyBookings } from '../features/bookings/useBookings';
+import { API_ORIGIN } from '../utils/apiOrigin';
 
 const TABS = [
   { key: 'upcoming', label: 'Upcoming' },
@@ -43,111 +46,145 @@ export default function MyBookingsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link to="/account" className="text-sm text-ink-500 hover:underline">
-          &larr; My account
-        </Link>
-        <h1 className="mt-1 text-2xl font-bold text-ink-900">My bookings</h1>
-      </div>
+    <div className="page-container pt-10 sm:pt-14">
+      <PageHeader
+        back={{ to: '/account', label: 'My account' }}
+        eyebrow="Bookings"
+        title={
+          <>
+            My <span className="font-editorial">bookings.</span>
+          </>
+        }
+        actions={
+          <Link to="/cars" className="btn btn-outline">
+            Book another car
+            <ArrowRight aria-hidden className="btn-arrow h-4 w-4" />
+          </Link>
+        }
+      />
 
-      <div className="flex flex-wrap gap-2 border-b border-ink-200 pb-3">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setParam('scope', tab.key)}
-            className={
-              scope === tab.key
-                ? 'rounded-md bg-ink-900 px-3 py-1.5 text-sm font-medium text-white'
-                : 'rounded-md px-3 py-1.5 text-sm font-medium text-ink-600 hover:bg-ink-100'
-            }
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="no-scrollbar mt-10 flex gap-7 overflow-x-auto border-b border-ink-200">
+        {TABS.map((tab) => {
+          const active = scope === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setParam('scope', tab.key)}
+              aria-pressed={active}
+              className={`-mb-px shrink-0 whitespace-nowrap border-b-2 pb-3.5 text-sm font-medium transition-colors ${
+                active
+                  ? 'border-accent-500 text-ink-950'
+                  : 'border-transparent text-ink-500 hover:text-ink-950'
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {isError && (
-        <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div role="alert" className="mt-8 rounded-card border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error.message}
         </div>
       )}
 
-      {isPending ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="h-28 animate-pulse rounded-lg bg-ink-200" />
-          ))}
-        </div>
-      ) : data && data.items.length > 0 ? (
-        <ul className="space-y-3">
-          {data.items.map((booking) => (
-            <li key={booking.id}>
-              <Link
-                to={`/account/bookings/${booking.id}`}
-                className="flex gap-4 rounded-lg border border-ink-200 bg-white p-4 transition hover:shadow-sm"
-              >
-                <div className="h-20 w-28 shrink-0 overflow-hidden rounded bg-ink-100">
-                  {booking.vehicle.imageUrl && (
-                    <img
-                      src={`http://localhost:4000${booking.vehicle.imageUrl}`}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  )}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-ink-900">{booking.vehicle.name}</p>
-                    <BookingStatusBadge status={booking.status} label={booking.statusLabel} />
+      <div className="mt-8">
+        {isPending ? (
+          <div className="space-y-3" aria-hidden>
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="h-32 animate-pulse rounded-card bg-ink-100" />
+            ))}
+          </div>
+        ) : data && data.items.length > 0 ? (
+          <ul className="space-y-3">
+            {data.items.map((booking) => (
+              <li key={booking.id}>
+                <Link
+                  to={`/account/bookings/${booking.id}`}
+                  className="group surface surface-interactive flex flex-col gap-4 p-3 sm:flex-row sm:items-center sm:gap-6 sm:p-3.5"
+                >
+                  <div className="image-stage h-40 w-full shrink-0 overflow-hidden rounded-xl sm:h-24 sm:w-36">
+                    {booking.vehicle.imageUrl ? (
+                      <img
+                        src={`${API_ORIGIN}${booking.vehicle.imageUrl}`}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-full items-center justify-center">
+                        <CarFront aria-hidden className="h-6 w-6 text-ink-400" strokeWidth={1.5} />
+                      </span>
+                    )}
                   </div>
-                  <p className="mt-1 text-xs text-ink-500">{booking.bookingNumber}</p>
-                  <p className="mt-1 text-sm text-ink-600">
-                    {formatDate(booking.period.pickupAt)} &rarr; {formatDate(booking.period.returnAt)}
-                  </p>
-                </div>
 
-                <div className="shrink-0 text-right">
-                  <p className="font-semibold text-ink-900">
-                    {booking.pricing.currency} {booking.pricing.totalAmount}
-                  </p>
-                  <p className="text-xs text-ink-500">
-                    {booking.period.rentalDays} day{booking.period.rentalDays === 1 ? '' : 's'}
-                  </p>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="rounded-lg border border-dashed border-ink-300 bg-white p-10 text-center">
-          <p className="font-medium text-ink-700">Nothing here yet</p>
-          <Link to="/cars" className="mt-3 inline-block text-sm text-ink-900 underline">
-            Browse cars
-          </Link>
-        </div>
-      )}
+                  <div className="min-w-0 flex-1 px-1 sm:px-0">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <p className="text-base font-semibold tracking-tight text-ink-950">{booking.vehicle.name}</p>
+                      <BookingStatusBadge status={booking.status} label={booking.statusLabel} />
+                    </div>
+                    <p className="tabular mt-1 font-mono text-xs text-ink-500">{booking.bookingNumber}</p>
+                    <p className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-ink-600">
+                      <CalendarDays aria-hidden className="h-4 w-4 text-ink-400" />
+                      {formatDate(booking.period.pickupAt)}
+                      <span aria-hidden className="text-ink-300">
+                        &rarr;
+                      </span>
+                      <span className="sr-only">to</span>
+                      {formatDate(booking.period.returnAt)}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-5 border-t border-ink-100 px-1 pt-3 sm:border-0 sm:px-0 sm:pr-3 sm:pt-0">
+                    <div className="sm:text-right">
+                      <p className="tabular text-base font-semibold text-ink-950">
+                        {booking.pricing.currency} {booking.pricing.totalAmount}
+                      </p>
+                      <p className="text-xs text-ink-500">
+                        {booking.period.rentalDays} day{booking.period.rentalDays === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <ArrowRight aria-hidden className="link-arrow-icon h-4 w-4 text-ink-400" />
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="rounded-card border border-dashed border-ink-300 px-6 py-14 text-center">
+            <p className="text-lg font-semibold text-ink-950">Nothing here yet</p>
+            <p className="mx-auto mt-1.5 max-w-sm text-sm text-ink-500">
+              Bookings you make appear here, grouped by where they are in the rental.
+            </p>
+            <Link to="/cars" className="btn btn-primary mt-6">
+              Browse cars
+            </Link>
+          </div>
+        )}
+      </div>
 
       {data && data.pagination.totalPages > 1 && (
-        <nav className="flex items-center justify-between text-sm" aria-label="Pagination">
+        <nav
+          className="mt-12 flex items-center justify-between border-t border-ink-100 pt-6 text-sm"
+          aria-label="Pagination"
+        >
           <button
             type="button"
             disabled={page <= 1}
             onClick={() => setParam('page', String(page - 1))}
-            className="rounded-md border border-ink-300 bg-white px-3 py-1.5 disabled:opacity-40"
+            className="btn btn-outline"
           >
             Previous
           </button>
-          <span className="text-ink-600">
+          <span className="tabular text-ink-500">
             Page {data.pagination.page} of {data.pagination.totalPages}
           </span>
           <button
             type="button"
             disabled={page >= data.pagination.totalPages}
             onClick={() => setParam('page', String(page + 1))}
-            className="rounded-md border border-ink-300 bg-white px-3 py-1.5 disabled:opacity-40"
+            className="btn btn-outline"
           >
             Next
           </button>

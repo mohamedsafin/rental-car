@@ -35,6 +35,14 @@ export interface RegisterData {
   fullName: string;
   email: string;
   password: string;
+  /**
+   * Required, as YYYY-MM-DD.
+   *
+   * Asked at sign-up so the minimum-age rule can be checked silently at
+   * booking time, instead of stopping a customer who has already chosen a car
+   * and picked dates.
+   */
+  dateOfBirth: string;
   phone?: string;
   country?: string;
 }

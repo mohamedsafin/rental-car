@@ -15,11 +15,12 @@
  */
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma';
-import { ApiError, ErrorCode } from '../../utils/ApiError';
+import { ApiError } from '../../utils/ApiError';
 import { auditService } from '../audit/service';
 import { availabilityService } from '../availability/service';
 import { pricingService } from '../pricing/service';
 import type { RentalActor } from './service';
+import { isBackOffice } from '../../modules/auth/roles';
 
 export const extensionsService = {
   /**
@@ -36,8 +37,8 @@ export const extensionsService = {
     });
     if (!booking) throw ApiError.notFound('Booking not found');
 
-    const isBackOffice = actor.role === 'ADMIN' || actor.role === 'STAFF';
-    if (!isBackOffice && booking.customerId !== actor.id) {
+    const backOffice = isBackOffice(actor.role);
+    if (!backOffice && booking.customerId !== actor.id) {
       throw ApiError.notFound('Booking not found');
     }
 
@@ -80,7 +81,18 @@ export const extensionsService = {
         originalReturnAt: booking.returnAt,
         requestedReturnAt,
         additionalDays: quote.period.rentalDays,
+        /*
+         * Stored as three figures, not one.
+         *
+         * `rentalTotal` is VAT-INCLUSIVE. Keeping only that meant approval had
+         * nothing to add to the booking's tax line and no way to know how much
+         * of the total was tax - so it added the whole VAT-inclusive figure to
+         * the pre-VAT subtotal instead. The split is known here, at the moment
+         * the quote is made, so it is kept here.
+         */
         additionalAmount: new Prisma.Decimal(quote.totals.rentalTotal),
+        additionalSubtotal: new Prisma.Decimal(quote.totals.taxableAmount),
+        additionalTax: new Prisma.Decimal(quote.totals.taxAmount),
         currency: booking.currency,
         status: 'REQUESTED',
       },
@@ -210,8 +222,18 @@ export const extensionsService = {
           status: 'ACTIVE',
           returnAt: extension.requestedReturnAt,
           rentalDays: extension.booking.rentalDays + extension.additionalDays,
+          /*
+           * Each part to its own column, so the invoice still reconciles.
+           *
+           * `vehicleSubtotal` is pre-VAT and `taxAmount` is the VAT line;
+           * adding the VAT-inclusive total to the subtotal - which is what
+           * this used to do - inflated the subtotal by the extension's VAT
+           * and left the tax line untouched. Subtotal + VAT then no longer
+           * equalled the total, and the VAT shown on a tax invoice was short.
+           */
           totalAmount: extension.booking.totalAmount.add(extension.additionalAmount),
-          vehicleSubtotal: extension.booking.vehicleSubtotal.add(extension.additionalAmount),
+          vehicleSubtotal: extension.booking.vehicleSubtotal.add(extension.additionalSubtotal),
+          taxAmount: extension.booking.taxAmount.add(extension.additionalTax),
         },
       });
 

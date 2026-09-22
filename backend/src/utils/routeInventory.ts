@@ -87,7 +87,7 @@ function walk(
         .filter((guard): guard is GuardFn => guard !== null);
 
       const all = [...active, ...own];
-      const guards = all.map((guard) => guard.guardKind!) as GuardKind[];
+      const guards = all.map((guard) => guard.guardKind!);
       const allowedRoles = all.flatMap((guard) => guard.allowedRoles ?? []);
 
       const paths = Array.isArray(layer.route.path) ? layer.route.path : [layer.route.path ?? ''];

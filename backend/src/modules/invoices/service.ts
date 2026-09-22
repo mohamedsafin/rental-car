@@ -17,18 +17,26 @@
  * and reverses it. Never by editing, never by deleting.
  */
 import { Prisma } from '@prisma/client';
-import type { Invoice, InvoiceLineItem } from '@prisma/client';
+import type { Invoice, InvoiceLineItem, Role } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { ApiError } from '../../utils/ApiError';
 import { auditService } from '../audit/service';
 import { SettingKey, settingsService } from '../settings/service';
 import { fireAndForget, notify } from '../notifications/triggers';
 import { nextDocumentNumber } from './numbering';
+import { isBackOffice } from '../../modules/auth/roles';
 
 export interface InvoiceActor {
-  id: string;
+  /**
+   * Null when the system issued it rather than a person.
+   *
+   * A month's invoice is raised by the payment clearing, not by anybody
+   * clicking - and recording a staff member who was not there would be a
+   * worse audit trail than recording nobody.
+   */
+  id: string | null;
   email: string;
-  role: 'CUSTOMER' | 'ADMIN' | 'STAFF';
+  role: Role;
   ipAddress?: string;
   userAgent?: string;
 }
@@ -62,6 +70,183 @@ interface DraftLine {
 
 export const invoicesService = {
   /**
+   * Issue the tax invoice for ONE MONTH of a long-term rental.
+   *
+   * =========================================================================
+   * WHY A MONTHLY RENTAL IS NOT ONE INVOICE
+   * =========================================================================
+   * A six-month rental is not one supply that happens to be paid in pieces -
+   * it is six supplies, one a month, each with its own tax point. Issuing a
+   * single document at the end would put six months of VAT into one period
+   * and leave the customer nothing to reclaim against for five of them.
+   *
+   * So each month gets its own invoice, carrying that month's rent plus
+   * whatever rode along on it - a Salik crossing, a fine - and nothing else.
+   * The rent line names the period, because "Rental" repeated six times on a
+   * customer's statement is not an accounting record.
+   */
+  async issueForInstalment(instalmentId: string, actor: InvoiceActor) {
+    const instalment = await prisma.rentalInstalment.findUnique({
+      where: { id: instalmentId },
+      include: {
+        charges: true,
+        booking: {
+          include: {
+            vehicle: { select: { brand: true, model: true, year: true, registrationNumber: true } },
+            customer: { select: { id: true, fullName: true, email: true, phone: true } },
+          },
+        },
+      },
+    });
+    if (!instalment) throw ApiError.notFound('That month does not exist');
+
+    /*
+     * Paid months only.
+     *
+     * The tax point for a rental month is when it is settled. Invoicing one
+     * in advance would declare VAT on money that has not arrived and may
+     * never - a customer can cancel a long-term rental mid-term.
+     */
+    if (instalment.status !== 'PAID') {
+      throw ApiError.conflict(
+        'This month has not been paid yet. A month is invoiced when it is settled.',
+      );
+    }
+
+    const existing = await prisma.invoice.findFirst({
+      where: { instalmentId, type: 'INVOICE', status: { not: 'CANCELLED' } },
+    });
+    if (existing) {
+      throw ApiError.conflict(
+        `Month ${instalment.sequence} is already invoiced as ${existing.invoiceNumber}. Issue a credit note to correct it.`,
+      );
+    }
+
+    const booking = instalment.booking;
+    const period = `${instalment.periodStart.toISOString().slice(0, 10)} to ${instalment.periodEnd
+      .toISOString()
+      .slice(0, 10)}`;
+
+    const lines: DraftLine[] = [
+      {
+        description: `${booking.vehicle.brand} ${booking.vehicle.model} - month ${instalment.sequence}`,
+        detail: `${booking.vehicle.registrationNumber} · ${period}`,
+        quantity: new Prisma.Decimal(1),
+        /*
+         * `subtotal`, not `amount`.
+         *
+         * The instalment stores the month VAT-INCLUSIVE in `amount`, with the
+         * net in `subtotal` and the tax in `taxAmount`. An invoice line is
+         * net by definition and the tax is stated once at the bottom - using
+         * the gross here would add VAT to VAT.
+         */
+        unitPrice: instalment.subtotal,
+        lineTotal: instalment.subtotal,
+        isTaxable: true,
+      },
+      /*
+       * Anything billed WITH this month, named individually - a customer
+       * querying a bill AED 30 higher than last month must be able to see
+       * which gate, on which day.
+       *
+       * Marked NOT taxable because no VAT was added when the charge was
+       * raised: it is the authority's figure plus the company's handling fee,
+       * and that is exactly what was collected. Adding VAT here would invoice
+       * the customer for tax nobody charged them. If the client's accountant
+       * wants these treated as a taxable recharge rather than a disbursement,
+       * that is a change to how the charge is CREATED, not a fudge here.
+       */
+      ...instalment.charges.map((charge) => ({
+        description: charge.description,
+        quantity: new Prisma.Decimal(1),
+        unitPrice: charge.amount,
+        lineTotal: charge.amount,
+        isTaxable: false,
+      })),
+    ];
+
+    const seller = await sellerSnapshot();
+    const taxableAmount = sum(lines.filter((line) => line.isTaxable));
+    const nonTaxable = sum(lines.filter((line) => !line.isTaxable));
+    const subtotal = taxableAmount.add(nonTaxable);
+
+    /*
+     * The rate this BOOKING agreed to, not today's rate.
+     *
+     * Derived from the instalment's own tax split, so a VAT change six weeks
+     * into a six-month rental does not silently re-rate the months already
+     * agreed.
+     */
+    const taxTotal = instalment.taxAmount;
+    const taxPercentage = derivePercentage(taxTotal, taxableAmount);
+
+    const invoice = await prisma.$transaction(async (tx) => {
+      const created = await tx.invoice.create({
+        data: {
+          invoiceNumber: await nextDocumentNumber(tx, 'invoice'),
+          type: 'INVOICE',
+          status: 'PAID',
+          bookingId: booking.id,
+          instalmentId: instalment.id,
+          customerId: booking.customerId,
+          ...seller,
+          customerName: booking.customer.fullName,
+          customerEmail: booking.customer.email,
+          customerPhone: booking.customer.phone,
+          subtotal,
+          discountTotal: new Prisma.Decimal(0),
+          taxableAmount,
+          taxPercentage,
+          taxTotal,
+          total: subtotal.add(taxTotal),
+          currency: instalment.currency,
+          issuedById: actor.id,
+          notes: `Month ${instalment.sequence} of booking ${booking.bookingNumber} (${period}).`,
+          lineItems: {
+            create: lines.map((line, index) => ({
+              sortOrder: index,
+              description: line.description,
+              detail: line.detail ?? null,
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+              lineTotal: line.lineTotal,
+              isTaxable: line.isTaxable,
+            })),
+          },
+        },
+        include: { lineItems: { orderBy: { sortOrder: 'asc' } } },
+      });
+
+      // The extras that rode along on this month are now on a tax document.
+      await tx.additionalCharge.updateMany({
+        where: { instalmentId: instalment.id, status: 'PENDING' },
+        data: { status: 'INVOICED' },
+      });
+
+      return created;
+    });
+
+    await auditService.record({
+      action: 'invoice.issued',
+      actorId: actor.id,
+      actorEmail: actor.email,
+      actorRole: actor.role,
+      entityType: 'Invoice',
+      entityId: invoice.id,
+      metadata: {
+        invoiceNumber: invoice.invoiceNumber,
+        bookingNumber: booking.bookingNumber,
+        instalment: instalment.sequence,
+        total: invoice.total.toFixed(2),
+      },
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+
+    return invoice;
+  },
+
+  /**
    * Issue the invoice for a booking.
    *
    * Refuses if one already stands. Re-invoicing a booking would put two live
@@ -87,8 +272,22 @@ export const invoicesService = {
       );
     }
 
+    /*
+     * A long-term rental is invoiced a month at a time.
+     *
+     * Its `totalAmount` is the whole term, which is a contract value, not a
+     * supply. Issuing it as one document would declare six months of VAT in
+     * one period and hand the customer nothing to reclaim against for five of
+     * them - so this path refuses and points at the one that is correct.
+     */
+    if (booking.billingCycle === 'MONTHLY') {
+      throw ApiError.conflict(
+        'This is a monthly rental, so each month is invoiced on its own when it is paid. Issue the invoice for a month from the booking instead.',
+      );
+    }
+
     const existing = await prisma.invoice.findFirst({
-      where: { bookingId, type: 'INVOICE', status: { not: 'CANCELLED' } },
+      where: { bookingId, instalmentId: null, type: 'INVOICE', status: { not: 'CANCELLED' } },
     });
     if (existing) {
       throw ApiError.conflict(
@@ -291,8 +490,8 @@ export const invoicesService = {
       },
     });
 
-    const isBackOffice = actor.role === 'ADMIN' || actor.role === 'STAFF';
-    if (!invoice || (!isBackOffice && invoice.customerId !== actor.id)) {
+    const backOffice = isBackOffice(actor.role);
+    if (!invoice || (!backOffice && invoice.customerId !== actor.id)) {
       throw ApiError.notFound('Invoice not found');
     }
 

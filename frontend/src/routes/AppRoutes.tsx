@@ -14,6 +14,9 @@ import SearchResultsPage from '../pages/SearchResultsPage';
 import CarDetailsPage from '../pages/CarDetailsPage';
 import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
+import ForgotPasswordPage from '../pages/ForgotPasswordPage';
+import ResetPasswordPage from '../pages/ResetPasswordPage';
+import VerifyEmailPage from '../pages/VerifyEmailPage';
 import AccountPage from '../pages/AccountPage';
 import DocumentsPage from '../pages/DocumentsPage';
 import MyBookingsPage from '../pages/MyBookingsPage';
@@ -32,6 +35,13 @@ export default function AppRoutes() {
         <Route path="/cars/:id" element={<CarDetailsPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        {/*
+          Public by necessity: somebody who cannot sign in is exactly who needs
+          these, and an emailed link has to work in a browser with no session.
+        */}
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         {/* Public and unauthenticated: terms you must sign in to read are
             terms you cannot read before deciding whether to sign up. */}
         <Route path="/legal/:slug" element={<LegalPage />} />

@@ -7,24 +7,22 @@
  * the phone and a member of staff types it into a search box; "please quote
  * 0f0f0392-ee8e-43f0-ad97-1d3aaccab1fb" is not a support process.
  *
- * The sequence is per-year and derived from a COUNT inside the booking
- * transaction, so two bookings created at the same instant cannot collide -
- * and if they somehow did, the unique index on bookingNumber would reject the
- * second rather than silently issue a duplicate reference.
+ * This used to be `COUNT(*) + 1` over the year's bookings, which was wrong in
+ * a way that only showed up once a booking was ever deleted: the count went
+ * back down, and the next booking was handed a reference another row already
+ * held. The unique index then rejected it, so the customer saw "a record with
+ * this bookingNumber already exists" and no booking at all.
+ *
+ * It now claims from the same atomic counter the invoice series uses, which
+ * never counts rows and therefore cannot rewind. See `invoices/numbering.ts`
+ * for why the counter is shaped the way it is.
  */
 import type { Prisma } from '@prisma/client';
+import { nextDocumentNumber } from '../invoices/numbering';
 
 export async function generateBookingNumber(
   tx: Prisma.TransactionClient,
   now: Date = new Date(),
 ): Promise<string> {
-  const year = now.getUTCFullYear();
-  const yearStart = new Date(Date.UTC(year, 0, 1));
-  const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
-
-  const countThisYear = await tx.booking.count({
-    where: { createdAt: { gte: yearStart, lt: yearEnd } },
-  });
-
-  return `BK-${year}-${String(countThisYear + 1).padStart(4, '0')}`;
+  return nextDocumentNumber(tx, 'booking', now);
 }

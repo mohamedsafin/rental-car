@@ -12,8 +12,13 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import BookingStatusBadge from '../components/BookingStatusBadge';
 import DepositManager from '../components/DepositManager';
+import SettlementCheck from '../components/SettlementCheck';
 import RentalPanel from '../components/RentalPanel';
 import CashPaymentPanel from '../components/CashPaymentPanel';
+import RentalAgreementPanel from '../components/RentalAgreementPanel';
+import AdditionalDrivers from '../components/AdditionalDrivers';
+import BookingEditPanel from '../components/BookingEditPanel';
+import { useAuth } from '../hooks/useAuth';
 import {
   NEXT_STATUSES,
   useAdminBooking,
@@ -52,6 +57,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 export default function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const { data, isPending, isError, error } = useAdminBooking(id);
   const changeStatus = useChangeBookingStatus();
   const cancelBooking = useCancelBookingAdmin();
@@ -79,6 +85,14 @@ export default function BookingDetailPage() {
   const nextStatuses = NEXT_STATUSES[booking.status];
   const canCancel = CANCELLABLE.includes(booking.status);
 
+  /*
+   * An online booking that has been confirmed but not yet paid for. It is a
+   * normal, expected state now that confirmation comes first - not an error -
+   * so the page says what it is waiting for instead of leaving staff to
+   * discover it by pressing a button that cannot work.
+   */
+  const awaitingPayment = booking.paymentMethod === 'ONLINE' && !booking.rentalPaid;
+
   return (
     <div className="max-w-4xl space-y-6">
       <div>
@@ -101,23 +115,34 @@ export default function BookingDetailPage() {
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h3 className="font-semibold text-slate-900">Move this booking on</h3>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            {nextStatuses.map((next) => (
-              <button
-                key={next}
-                type="button"
-                disabled={changeStatus.isPending}
-                onClick={() => {
-                  setActionError(null);
-                  changeStatus.mutate(
-                    { id: booking.id, status: next },
-                    { onError: (err) => setActionError(err.message) },
-                  );
-                }}
-                className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-              >
-                Mark {next.replace(/_/g, ' ').toLowerCase()}
-              </button>
-            ))}
+            {nextStatuses.map((next) => {
+              /*
+               * The server refuses READY_FOR_PICKUP on an unpaid online
+               * booking. Offering the button anyway and letting it come back
+               * as a red error reads like a fault in the system, when it is
+               * the rule working. Disable it and say what is being waited on.
+               */
+              const blocked = next === 'READY_FOR_PICKUP' && awaitingPayment;
+
+              return (
+                <button
+                  key={next}
+                  type="button"
+                  disabled={changeStatus.isPending || blocked}
+                  title={blocked ? 'The rental payment has not cleared yet.' : undefined}
+                  onClick={() => {
+                    setActionError(null);
+                    changeStatus.mutate(
+                      { id: booking.id, status: next },
+                      { onError: (err) => setActionError(err.message) },
+                    );
+                  }}
+                  className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Mark {next.replace(/_/g, ' ').toLowerCase()}
+                </button>
+              );
+            })}
 
             {canCancel && !cancelling && (
               <button
@@ -129,6 +154,14 @@ export default function BookingDetailPage() {
               </button>
             )}
           </div>
+
+          {awaitingPayment && nextStatuses.includes('READY_FOR_PICKUP') && (
+            <p className="mt-3 text-sm text-slate-500">
+              Waiting for the rental payment to clear. The booking moves to ready for pickup on its
+              own when it does
+              {booking.status === 'CONFIRMED' ? ', once the customer starts checkout' : ''}.
+            </p>
+          )}
 
           {cancelling && (
             <div className="mt-3 space-y-2">
@@ -237,10 +270,41 @@ export default function BookingDetailPage() {
         </dl>
       </section>
 
+      {/*
+        * Above the handover controls on purpose: the contract is signed BEFORE
+        * the keys change hands, and a panel underneath the handover form would
+        * be read after the moment it matters.
+        */}
+      {/* Moving the dates changes the price, so it belongs above the money. */}
+      <BookingEditPanel
+        bookingId={booking.id}
+        bookingStatus={booking.status}
+        pickupAt={booking.period.pickupAt}
+        returnAt={booking.period.returnAt}
+        vehicleId={booking.vehicle.id}
+      />
+
+      {/* Before the agreement: who may drive is a term the agreement prints. */}
+      <AdditionalDrivers bookingId={booking.id} bookingStatus={booking.status} />
+
+      <RentalAgreementPanel
+        bookingId={booking.id}
+        bookingStatus={booking.status}
+        customerName={booking.customer?.fullName ?? ''}
+        staffName={user?.fullName ?? ''}
+      />
+
       {/* Only renders for a pay-at-pickup booking. */}
       <CashPaymentPanel booking={booking} />
 
       <RentalPanel booking={booking} vehicleMileage={booking.vehicle.currentMileage ?? 0} />
+
+      {/*
+        * Directly above the deposit controls, because that is the decision it
+        * informs. It renders nothing when there is nothing outstanding and no
+        * gap in the toll data.
+        */}
+      <SettlementCheck bookingId={booking.id} />
 
       <DepositManager bookingId={booking.id} />
 

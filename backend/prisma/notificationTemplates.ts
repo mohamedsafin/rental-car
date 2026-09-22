@@ -40,6 +40,56 @@ interface TemplateSeed {
 
 export const NOTIFICATION_TEMPLATES: TemplateSeed[] = [
   {
+    /*
+     * One month of a long-term rental has fallen due.
+     *
+     * Sent on the day it becomes payable, not after it is late: a customer who
+     * hears from you only once they are overdue is a customer you have already
+     * annoyed, and chasing is more expensive than reminding.
+     */
+    key: 'instalment.due',
+    channel: 'EMAIL',
+    subject: 'Month {{sequence}} of {{termMonths}} is due - {{bookingNumber}}',
+    body: [
+      'Dear {{customerName}},',
+      '',
+      'Your next monthly payment for booking {{bookingNumber}} is now due.',
+      '',
+      '  Month:   {{sequence}} of {{termMonths}}',
+      '  Covers:  {{periodStart}} to {{periodEnd}}',
+      '  Amount:  {{amount}}',
+      '',
+      'You can pay it here:',
+      '{{bookingUrl}}',
+      '',
+      '{{companyName}}',
+    ].join('\n'),
+    description: 'Sent when a month of a long-term rental becomes payable (BRD 16).',
+  },
+  {
+    /*
+     * Internal, not customer-facing (BRD 41: "the admin should receive
+     * reminders"). It names the vehicle and the date rather than just saying
+     * something expires soon, because a reminder you have to go and look up is
+     * a reminder that gets postponed.
+     */
+    key: 'fleet.expiry_reminder',
+    channel: 'EMAIL',
+    subject: '{{label}} expires in {{daysRemaining}} days - {{vehicle}}',
+    body: [
+      'Hello {{recipientName}},',
+      '',
+      '{{kindLabel}} for {{vehicle}} expires on {{expiryDate}} ({{daysRemaining}} days).',
+      '',
+      '  {{label}}',
+      '',
+      'Renew it before a rental is refused or a claim is declined.',
+      '',
+      '{{companyName}}',
+    ].join('\n'),
+    description: 'Sent to administrators when a vehicle registration or insurance policy reaches a configured reminder day.',
+  },
+  {
     key: 'booking.created',
     channel: 'EMAIL',
     subject: 'Booking {{bookingNumber}} received',
@@ -165,6 +215,43 @@ extension from your booking page: {{bookingUrl}}`,
 You can review your documents here: {{documentsUrl}}`,
   },
   {
+    /*
+     * The one email that has to arrive, and the one that is most often
+     * mistaken for phishing - so it says plainly what was asked for, by whom,
+     * and what to do if it was not them.
+     */
+    key: 'auth.password_reset',
+    channel: 'EMAIL',
+    subject: 'Reset your password',
+    description: 'Sent when somebody asks to reset a forgotten password.',
+    body: `Hello {{customerName}},
+
+Somebody asked to reset the password for this account. If that was you, use
+the link below within {{expiresInMinutes}} minutes:
+
+{{resetUrl}}
+
+Setting a new password signs you out everywhere, on every device.
+
+If you did not ask for this, you can ignore this email - your password has not
+changed and nobody can change it without this link.`,
+  },
+  {
+    key: 'auth.email_verification',
+    channel: 'EMAIL',
+    subject: 'Confirm your email address',
+    description: 'Sent to confirm a newly registered address belongs to the person who typed it.',
+    body: `Welcome {{customerName}},
+
+Please confirm this is your email address by following the link below within
+{{expiresInHours}} hours:
+
+{{verifyUrl}}
+
+We use it to send booking confirmations, pickup reminders and invoices, so it
+is worth getting right.`,
+  },
+  {
     key: 'invoice.issued',
     channel: 'EMAIL',
     subject: 'Invoice {{invoiceNumber}}',
@@ -176,6 +263,34 @@ Invoice {{invoiceNumber}} for booking {{bookingNumber}} is ready.
   Total: {{total}}
 
 You can view and download it here: {{invoiceUrl}}`,
+  },
+  {
+    /*
+     * Sent the moment money leaves a deposit.
+     *
+     * Nothing told the customer about a deduction at all: they found out when
+     * a refund arrived short, which is how a correct recovery becomes an
+     * argument. It arrives while they still remember the gate or the day of
+     * the offence, and it names the reason rather than just the amount.
+     */
+    key: 'deposit.deducted',
+    channel: 'EMAIL',
+    subject: '{{amount}} deducted from your deposit - {{bookingNumber}}',
+    description: 'Sent when a charge is taken out of a security deposit (BRD 20).',
+    body: `Dear {{customerName}},
+
+We have deducted {{amount}} from your security deposit for booking
+{{bookingNumber}}.
+
+  What for:  {{categoryLabel}}
+  Details:   {{reason}}
+
+Your deposit balance is now {{balance}}. The rest is returned when the
+rental is settled.
+
+If you think this is wrong, reply to this email and we will look into it.
+
+{{bookingUrl}}`,
   },
   {
     key: 'deposit.released',

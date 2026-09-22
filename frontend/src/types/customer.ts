@@ -73,6 +73,8 @@ export interface DocumentRequirement {
   status: DocumentStatus | 'MISSING';
   documentId: string | null;
   rejectionReason: string | null;
+  /** When this document stops being valid. Null if it never expires. */
+  expiryDate: string | null;
 }
 
 export interface VerificationSummary {

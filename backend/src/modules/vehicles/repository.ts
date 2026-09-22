@@ -90,7 +90,7 @@ export const vehiclesRepository = {
       prisma.vehicle.count({ where }),
     ]);
 
-    return { items: items as VehicleWithRelations[], total };
+    return { items: items, total };
   },
 
   async findById(id: string, isAdmin: boolean): Promise<VehicleWithRelations | null> {
@@ -98,7 +98,7 @@ export const vehiclesRepository = {
       where: { id, deletedAt: null, ...(isAdmin ? {} : { isPublished: true }) },
       include: vehicleInclude,
     });
-    return vehicle as VehicleWithRelations | null;
+    return vehicle;
   },
 
   findByRegistration(registrationNumber: string): Promise<Vehicle | null> {
@@ -118,7 +118,7 @@ export const vehiclesRepository = {
       },
       include: vehicleInclude,
     });
-    return vehicle as VehicleWithRelations;
+    return vehicle;
   },
 
   /**
@@ -145,7 +145,7 @@ export const vehiclesRepository = {
       return tx.vehicle.update({ where: { id }, data, include: vehicleInclude });
     });
 
-    return vehicle as VehicleWithRelations;
+    return vehicle;
   },
 
   softDelete(id: string): Promise<Vehicle> {

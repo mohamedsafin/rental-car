@@ -12,6 +12,7 @@
  *  - Deleting is soft. A vehicle with rental history must never disappear.
  */
 import { Prisma } from '@prisma/client';
+import type { Role } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { ApiError } from '../../utils/ApiError';
 import { auditService } from '../audit/service';
@@ -22,7 +23,7 @@ import type { CreateVehicleInput, ListVehiclesQuery, UpdateVehicleInput } from '
 export interface FleetActor {
   id: string;
   email: string;
-  role: 'ADMIN' | 'STAFF' | 'CUSTOMER';
+  role: Role;
   ipAddress?: string;
   userAgent?: string;
 }
@@ -43,6 +44,25 @@ async function assertCategoryUsable(categoryId: string): Promise<void> {
 async function assertLocationUsable(locationId: string): Promise<void> {
   const location = await prisma.location.findFirst({ where: { id: locationId, deletedAt: null } });
   if (!location) throw ApiError.badRequest('Selected location does not exist');
+}
+
+/**
+ * A chassis number identifies one physical car, so two rows cannot share one.
+ *
+ * The database already refuses it; this turns that refusal into a sentence
+ * that names the other car, because "unique constraint violated" tells the
+ * person at the desk nothing about which record to go and look at.
+ */
+async function assertVinFree(vin: string): Promise<void> {
+  const duplicate = await prisma.vehicle.findFirst({
+    where: { vin, deletedAt: null },
+    select: { registrationNumber: true },
+  });
+  if (duplicate) {
+    throw ApiError.conflict(
+      `Chassis number ${vin} is already on ${duplicate.registrationNumber}. Two cars cannot share one.`,
+    );
+  }
 }
 
 async function assertFeaturesExist(featureIds: string[]): Promise<void> {
@@ -74,6 +94,8 @@ export const vehiclesService = {
       );
     }
 
+    if (input.vin) await assertVinFree(input.vin);
+
     await assertCategoryUsable(input.categoryId);
     if (input.locationId) await assertLocationUsable(input.locationId);
     await assertFeaturesExist(input.featureIds);
@@ -89,6 +111,11 @@ export const vehiclesService = {
         securityDeposit: decimal(rest.securityDeposit) as Prisma.Decimal,
         extraMileageCharge: decimal(rest.extraMileageCharge) ?? null,
         mileageLimitPerDay: rest.mileageLimitPerDay ?? null,
+        vin: rest.vin ?? null,
+        purchasePrice: decimal(rest.purchasePrice) ?? null,
+        // A day, not an instant: nobody records the hour a car was bought.
+        purchaseDate: rest.purchaseDate ? new Date(rest.purchaseDate) : null,
+        currentValue: decimal(rest.currentValue) ?? null,
         variant: rest.variant ?? null,
         color: rest.color ?? null,
         description: rest.description ?? null,
@@ -126,6 +153,8 @@ export const vehiclesService = {
       }
     }
 
+    if (input.vin && input.vin !== existing.vin) await assertVinFree(input.vin);
+
     if (input.categoryId) await assertCategoryUsable(input.categoryId);
     if (input.locationId) await assertLocationUsable(input.locationId);
     if (input.featureIds) await assertFeaturesExist(input.featureIds);
@@ -145,6 +174,11 @@ export const vehiclesService = {
         ...(rest.extraMileageCharge !== undefined && {
           extraMileageCharge: decimal(rest.extraMileageCharge),
         }),
+        ...(rest.purchasePrice !== undefined && { purchasePrice: decimal(rest.purchasePrice) }),
+        ...(rest.purchaseDate !== undefined && {
+          purchaseDate: rest.purchaseDate ? new Date(rest.purchaseDate) : null,
+        }),
+        ...(rest.currentValue !== undefined && { currentValue: decimal(rest.currentValue) }),
         ...(categoryId ? { category: { connect: { id: categoryId } } } : {}),
         ...(locationId ? { location: { connect: { id: locationId } } } : {}),
       },

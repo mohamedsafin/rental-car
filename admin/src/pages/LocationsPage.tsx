@@ -11,7 +11,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { postData } from '../services/api';
-import { useAdminLocations } from '../features/fleet/useFleetAdmin';
+import { useAdminLocations, useDeleteLocation } from '../features/fleet/useFleetAdmin';
 import FormField from '../components/FormField';
 import type { NormalisedApiError } from '../types/api';
 import type { Location } from '../types/vehicle';
@@ -49,6 +49,21 @@ export default function LocationsPage() {
     },
     onError: (err) => setError(err.message),
   });
+
+  const remove = useDeleteLocation();
+
+  function removeLocation(location: Location) {
+    setError(null);
+    if (
+      !window.confirm(
+        `Remove "${location.name}"?\n\nIt disappears from the customer's pickup and drop-off ` +
+          'dropdowns. Existing bookings that used it stay intact and readable.',
+      )
+    ) {
+      return;
+    }
+    remove.mutate(location.id, { onError: (err) => setError(err.message) });
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -155,12 +170,13 @@ export default function LocationsPage() {
               <th className="px-4 py-3">Emirate</th>
               <th className="px-4 py-3">Delivery</th>
               <th className="px-4 py-3">Active</th>
+              <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isPending && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                   Loading...
                 </td>
               </tr>
@@ -183,11 +199,21 @@ export default function LocationsPage() {
                     <span className="text-xs text-slate-400">Inactive</span>
                   )}
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() => removeLocation(location)}
+                    disabled={remove.isPending}
+                    className="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {remove.isPending && remove.variables === location.id ? 'Removing...' : 'Remove'}
+                  </button>
+                </td>
               </tr>
             ))}
             {data?.locations.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center">
+                <td colSpan={6} className="px-4 py-10 text-center">
                   <p className="font-medium text-slate-700">No locations yet</p>
                   <p className="mt-1 text-sm text-slate-500">
                     Add your real offices and delivery areas. None are pre-filled, because the BRD

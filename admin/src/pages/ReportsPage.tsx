@@ -12,6 +12,8 @@
  * pack can be linked back to the exact query that produced it.
  */
 import { useSearchParams } from 'react-router-dom';
+import RevenueTrend from '../components/RevenueTrend';
+import ProfitabilityReport from '../components/ProfitabilityReport';
 import {
   useBookingsReport,
   useFleetReport,
@@ -228,6 +230,15 @@ export default function ReportsPage() {
           </section>
         )}
       </div>
+
+      {/*
+        The shape of the month, then whether each car was worth it. Both sit
+        above utilisation because "busy" is only interesting once you know what
+        busy earned.
+      */}
+      <RevenueTrend range={range} currency={currency} />
+
+      <ProfitabilityReport range={range} currency={currency} />
 
       {fleet && fleet.vehicles.length > 0 && (
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">

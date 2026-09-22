@@ -37,7 +37,11 @@ export function useUpdateUser() {
   return useMutation<
     { user: User },
     NormalisedApiError,
-    { id: string; changes: { role?: Role; status?: UserStatus } }
+    {
+      id: string;
+      /// '' clears the branch; omitting it leaves the branch alone.
+      changes: { role?: Role; status?: UserStatus; branchId?: string };
+    }
   >({
     mutationFn: ({ id, changes }) => patchData<{ user: User }>(`/users/${id}`, changes),
     onSuccess: () => {
@@ -52,7 +56,13 @@ export function useCreateStaff() {
   return useMutation<
     { user: User },
     NormalisedApiError,
-    { fullName: string; email: string; password: string; role: 'ADMIN' | 'STAFF' }
+    {
+      fullName: string;
+      email: string;
+      password: string;
+      /// Not CUSTOMER: those are created by registering or at the counter.
+      role: Exclude<Role, 'CUSTOMER'>;
+    }
   >({
     mutationFn: (data) => postData<{ user: User }>('/users', data),
     onSuccess: () => {

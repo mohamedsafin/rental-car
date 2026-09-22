@@ -20,6 +20,7 @@ import { authorizeStaff } from '../../middleware/authorize';
 import { validate } from '../../middleware/validate';
 import { uploadCustomerDocument } from '../../middleware/upload';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { contentDisposition } from '../../utils/contentDisposition';
 import { sendCreated, sendSuccess } from '../../utils/apiResponse';
 import { ApiError } from '../../utils/ApiError';
 import { requestContext } from '../audit/service';
@@ -102,7 +103,7 @@ router.get(
     res.setHeader('Content-Type', mimeType);
     // `inline` lets staff preview in the browser rather than downloading.
     // The filename is quoted because a document name can contain spaces.
-    res.setHeader('Content-Disposition', `inline; filename="${fileName.replace(/"/g, '')}"`);
+    res.setHeader('Content-Disposition', contentDisposition(fileName));
     // Identity documents must never be cached by a proxy or a shared browser.
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
     res.setHeader('X-Content-Type-Options', 'nosniff');

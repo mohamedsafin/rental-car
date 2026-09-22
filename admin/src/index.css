@@ -1,18 +1,432 @@
 /* Tailwind CSS v4 - a single import replaces the old three @tailwind lines. */
 @import 'tailwindcss';
 
-/* Design tokens. Real brand colours come from the client's logo/brand guide
-   (BRD 51), so these are neutral placeholders we will replace, not invent. */
+/*
+ * ===========================================================================
+ * DESIGN TOKENS - the same brand as the customer site, dressed for work
+ * ===========================================================================
+ *
+ * The `ink-*` ramp and the warm `accent-*` orange are lifted unchanged from
+ * the customer app, on purpose: a company whose booking site and back office
+ * look like two different products feels like two different companies, and the
+ * people who see both most often are the staff.
+ *
+ * What differs is DENSITY, not identity. The customer site is a showroom -
+ * generous space, 18px corners, pill buttons, one idea per screen. This is a
+ * workshop: ten rows of numbers, read at a glance, forty times a day. So the
+ * corners are tighter, the type smaller, the spacing closer, and the accent is
+ * spent even more sparingly - here it means "this needs you", nothing else.
+ */
 @theme {
-  --color-brand-50: oklch(0.97 0.02 250);
-  --color-brand-100: oklch(0.93 0.04 250);
-  --color-brand-500: oklch(0.58 0.16 250);
-  --color-brand-600: oklch(0.51 0.16 250);
-  --color-brand-700: oklch(0.44 0.14 250);
+  /* Untinted charcoal. ink-500 is the lightest step allowed for TEXT
+     (4.8:1 on white); 400 and below are icons, hairlines and placeholders. */
+  --color-ink-50: #f7f8fa;
+  --color-ink-100: #eef0f3;
+  --color-ink-200: #e2e5ea;
+  --color-ink-300: #c9ced6;
+  --color-ink-400: #9aa1ac;
+  --color-ink-500: #6b7280;
+  --color-ink-600: #4b5260;
+  --color-ink-700: #343944;
+  --color-ink-800: #1f232b;
+  --color-ink-900: #14171c;
+  --color-ink-950: #0b0d10;
+
+  /* The warm accent. In here it marks work waiting on a human - a queue with
+     something in it, the active page - and nothing decorative. */
+  --color-accent-50: #fff6ed;
+  --color-accent-100: #ffead5;
+  --color-accent-200: #fed0a8;
+  --color-accent-400: #f98e3f;
+  --color-accent-500: #f06c15;
+  --color-accent-600: #c1540c;
+  --color-accent-700: #9c4210;
+
+  /*
+   * Status colours. Three, each with exactly one meaning, so a colour on this
+   * screen can be read without a legend:
+   *   positive - money in, a car free, a document approved
+   *   caution  - waiting on somebody
+   *   critical - refused, overdue, expired
+   */
+  --color-positive-50: #ecfdf5;
+  --color-positive-100: #d1fae5;
+  --color-positive-600: #059669;
+  --color-positive-700: #047857;
+
+  --color-caution-50: #fffbeb;
+  --color-caution-100: #fef3c7;
+  --color-caution-600: #d97706;
+  --color-caution-700: #b45309;
+
+  --color-critical-50: #fef2f2;
+  --color-critical-100: #fee2e2;
+  --color-critical-600: #dc2626;
+  --color-critical-700: #b91c1c;
+
+  /*
+   * ===========================================================================
+   * SLATE IS RETUNED TO THE INK RAMP
+   * ===========================================================================
+   * Thirty-five screens were written against Tailwind's default `slate`, which
+   * is a BLUE-TINTED grey. The brand's neutral is untinted, and the two sitting
+   * side by side is what makes an app look like it was built by two teams -
+   * a faintly blue table inside a warm-grey shell.
+   *
+   * Rewriting every class across thirty-five files would be a large diff, a
+   * large regression surface, and a week of merge conflicts, to change nothing
+   * anybody can name. Retuning the ramp itself gets the same result: every
+   * existing `bg-slate-50` and `text-slate-900` picks up the brand neutral,
+   * with no code touched and nothing to get wrong.
+   *
+   * The steps map almost one to one - Tailwind's slate and this ink ramp were
+   * built to the same lightness curve - so contrast ratios are preserved and
+   * nothing that passed WCAG before stops passing now.
+   */
+  --color-slate-50: #f7f8fa;
+  --color-slate-100: #eef0f3;
+  --color-slate-200: #e2e5ea;
+  --color-slate-300: #c9ced6;
+  --color-slate-400: #9aa1ac;
+  --color-slate-500: #6b7280;
+  --color-slate-600: #4b5260;
+  --color-slate-700: #343944;
+  --color-slate-800: #1f232b;
+  --color-slate-900: #14171c;
+  --color-slate-950: #0b0d10;
+
+  --font-sans: 'Geist', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  /* 12px. Softer than a spreadsheet, tighter than the customer site's 18px. */
+  --radius-card: 0.75rem;
+
+  /* Shadows stay low and wide: panels should float, not sit on a drop shadow. */
+  --shadow-card: 0 1px 2px rgb(16 18 22 / 0.04), 0 6px 16px -10px rgb(16 18 22 / 0.12);
+  --shadow-card-hover: 0 2px 4px rgb(16 18 22 / 0.05), 0 16px 32px -16px rgb(16 18 22 / 0.2);
+  --shadow-float: 0 1px 2px rgb(16 18 22 / 0.05), 0 24px 56px -24px rgb(16 18 22 / 0.28);
+
+  /* One easing curve for everything that moves. */
+  --ease-premium: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-html,
-body,
-#root {
-  height: 100%;
+:root {
+  --sidebar-width: 16rem;
+  --topbar-height: 3.75rem;
+}
+
+/*
+ * ===========================================================================
+ * BASE
+ * ===========================================================================
+ */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    /* A faint neutral floor so white panels read as raised rather than as
+       holes cut in the page. */
+    background-color: var(--color-ink-50);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* A visible focus ring everywhere, not only where a component remembered
+     one. Staff work this app at speed, and several of them by keyboard. */
+  :focus-visible {
+    outline: 2px solid var(--color-ink-900);
+    outline-offset: 2px;
+    border-radius: 0.375rem;
+  }
+
+  ::selection {
+    background-color: var(--color-accent-100);
+    color: var(--color-ink-950);
+  }
+
+  /*
+   * Every number in this app is money, a count or a date, and all three are
+   * read down a column. Tabular figures by default means they line up without
+   * every table having to remember to ask.
+   */
+  table,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/*
+ * ===========================================================================
+ * COMPONENTS
+ * ===========================================================================
+ * In `@layer components` for a load-bearing reason: Tailwind's utilities sit
+ * in a LATER layer, so a utility on the same element always wins. Unlayered,
+ * these rules would silently beat every utility regardless of source order.
+ */
+@layer components {
+  /* --- Surfaces --------------------------------------------------------- */
+  .card {
+    background-color: #ffffff;
+    border: 1px solid var(--color-ink-100);
+    border-radius: var(--radius-card);
+  }
+
+  .card-raised {
+    box-shadow: var(--shadow-card);
+  }
+
+  /* A card that is a link. A 2px lift - enough to say "clickable", not enough
+     to make a grid of them feel like a trampoline. */
+  .card-interactive {
+    transition:
+      transform 300ms var(--ease-premium),
+      border-color 300ms var(--ease-premium),
+      box-shadow 300ms var(--ease-premium);
+  }
+  .card-interactive:hover {
+    transform: translateY(-2px);
+    border-color: var(--color-ink-200);
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  /* --- Section headings ------------------------------------------------- */
+  .section-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink-500);
+  }
+
+  /* --- Buttons ---------------------------------------------------------- */
+  /*
+   * Squared, not pilled. The customer site's pills read as invitations; in a
+   * dense table a row of pills looks like confetti, and a rectangle sits in a
+   * grid of rectangles without drawing the eye away from the data.
+   */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4375rem;
+    border-radius: 0.5rem;
+    border: 1px solid transparent;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    letter-spacing: -0.003em;
+    padding-block: 0.4375rem;
+    padding-inline: 0.875rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background-color 180ms var(--ease-premium),
+      border-color 180ms var(--ease-premium),
+      color 180ms var(--ease-premium),
+      box-shadow 180ms var(--ease-premium);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background-color: var(--color-ink-950);
+    color: #ffffff;
+  }
+  .btn-primary:not(:disabled):hover {
+    background-color: var(--color-ink-800);
+  }
+
+  .btn-outline {
+    border-color: var(--color-ink-200);
+    background-color: #ffffff;
+    color: var(--color-ink-800);
+  }
+  .btn-outline:not(:disabled):hover {
+    border-color: var(--color-ink-300);
+    background-color: var(--color-ink-50);
+    color: var(--color-ink-950);
+  }
+
+  .btn-ghost {
+    color: var(--color-ink-600);
+  }
+  .btn-ghost:not(:disabled):hover {
+    background-color: var(--color-ink-100);
+    color: var(--color-ink-950);
+  }
+
+  /* Money leaves the company, a car is handed over, a charge is taken. */
+  .btn-positive {
+    background-color: var(--color-positive-600);
+    color: #ffffff;
+  }
+  .btn-positive:not(:disabled):hover {
+    background-color: var(--color-positive-700);
+  }
+
+  .btn-danger {
+    background-color: var(--color-critical-600);
+    color: #ffffff;
+  }
+  .btn-danger:not(:disabled):hover {
+    background-color: var(--color-critical-700);
+  }
+
+  .btn-sm {
+    padding-block: 0.25rem;
+    padding-inline: 0.625rem;
+    font-size: 0.75rem;
+    border-radius: 0.4375rem;
+  }
+
+  .btn-lg {
+    padding-block: 0.625rem;
+    padding-inline: 1.125rem;
+    font-size: 0.875rem;
+  }
+
+  /* --- Badges ----------------------------------------------------------- */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    border-radius: 999px;
+    padding-block: 0.1875rem;
+    padding-inline: 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1rem;
+    white-space: nowrap;
+  }
+
+  .badge-neutral {
+    background-color: var(--color-ink-100);
+    color: var(--color-ink-700);
+  }
+  .badge-positive {
+    background-color: var(--color-positive-50);
+    color: var(--color-positive-700);
+  }
+  .badge-caution {
+    background-color: var(--color-caution-50);
+    color: var(--color-caution-700);
+  }
+  .badge-critical {
+    background-color: var(--color-critical-50);
+    color: var(--color-critical-700);
+  }
+  .badge-accent {
+    background-color: var(--color-accent-50);
+    color: var(--color-accent-700);
+  }
+
+  /* --- Form controls ---------------------------------------------------- */
+  .input {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-ink-200);
+    background-color: #ffffff;
+    color: var(--color-ink-950);
+    font-size: 0.875rem;
+    padding-block: 0.4375rem;
+    padding-inline: 0.6875rem;
+    color-scheme: light;
+    transition:
+      border-color 180ms var(--ease-premium),
+      box-shadow 180ms var(--ease-premium);
+  }
+
+  .input::placeholder {
+    color: var(--color-ink-400);
+  }
+
+  /* A halo rather than a thicker border, so a focused control never changes
+     size and nudges the fields either side of it. */
+  .input:focus {
+    outline: none;
+    border-color: var(--color-ink-900);
+    box-shadow: 0 0 0 3px var(--color-ink-100);
+  }
+
+  .input:disabled {
+    background-color: var(--color-ink-50);
+    color: var(--color-ink-500);
+  }
+
+  /* --- Data tables ------------------------------------------------------ */
+  .table-head {
+    background-color: var(--color-ink-50);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-ink-500);
+  }
+
+  /* A whole-row tint on hover. On a table this wide it is the only reliable
+     way to keep your eye on one record from the first column to the last. */
+  .table-row {
+    transition: background-color 120ms var(--ease-premium);
+  }
+  .table-row:hover {
+    background-color: var(--color-ink-50);
+  }
+
+  /* --- Loading ---------------------------------------------------------- */
+  /*
+   * A shaped grey block where the number will be, not a spinner. It holds the
+   * layout still, so the page does not jump when four widgets answer at four
+   * different moments.
+   */
+  .skeleton {
+    background-color: var(--color-ink-100);
+    border-radius: 0.375rem;
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+  }
+
+  /* --- Motion ----------------------------------------------------------- */
+  .animate-page {
+    animation: fade-up 320ms var(--ease-premium) both;
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Respect the OS setting. Somebody who asked for less motion gets none. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -10,7 +10,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate';
-import { authorizeStaff, authorizeAdmin } from '../../middleware/authorize';
+import { authorizeOperations, authorizeAdmin } from '../../middleware/authorize';
 import { getValidatedQuery, validate } from '../../middleware/validate';
 import { uploadVehicleImages } from '../../middleware/upload';
 import { asyncHandler } from '../../utils/asyncHandler';
@@ -22,6 +22,7 @@ import { rentalsService, type RentalActor } from './service';
 import { inspectionsService } from './inspectionsService';
 import { extensionsService } from './extensionService';
 import { inspectionPhotoService } from './photoService';
+import { isBackOffice } from '../../modules/auth/roles';
 
 const bookingIdParam = z.object({ bookingId: z.string().uuid('Invalid booking id') });
 const chargeIdParam = z.object({ chargeId: z.string().uuid('Invalid charge id') });
@@ -31,26 +32,59 @@ const extensionIdParam = z.object({ extensionId: z.string().uuid('Invalid extens
 const fuelPercent = z.coerce.number().int().min(0).max(100);
 const mileage = z.coerce.number().int().min(0).max(2_000_000);
 
-const pickupSchema = z.object({
-  mileage,
-  fuelPercent,
-  // Not optional and not defaulted: BRD 24 puts customer verification first in
-  // the handover checklist, so staff must actively confirm it.
-  customerVerified: z.boolean(),
-  conditionNotes: z.string().max(2000).trim().optional(),
-  damageNotes: z.string().max(2000).trim().optional(),
-  accessories: z.array(z.string().max(60)).max(30).optional(),
-});
+/**
+ * The customer's own sign-off on the car's condition.
+ *
+ * ===========================================================================
+ * WHY THIS IS NOT `customerVerified`
+ * ===========================================================================
+ * `customerVerified` is STAFF saying "I checked this person's ID and they are
+ * who they say they are". This is the CUSTOMER saying "yes, that is the state
+ * the car was in". They are different claims by different people, and running
+ * them together is exactly how a scratch that was already there becomes an
+ * argument nobody can settle.
+ *
+ * A refusal to sign is recorded too. "The customer would not agree the
+ * condition" is a fact worth having on the file - much better than an empty
+ * field that reads as if nobody remembered to ask.
+ */
+const conditionSignOff = {
+  customerSignedName: z.string().trim().min(3, 'Type the customer’s full name').max(120).optional(),
+  customerDeclined: z.boolean().default(false),
+};
 
-const returnSchema = z.object({
-  mileage,
-  fuelPercent,
-  conditionNotes: z.string().max(2000).trim().optional(),
-  damageNotes: z.string().max(2000).trim().optional(),
-  cleanliness: z.string().max(200).trim().optional(),
-  needsCleaning: z.boolean().default(false),
-  missingAccessories: z.array(z.string().max(60)).max(30).optional(),
-});
+const pickupSchema = z
+  .object({
+    mileage,
+    fuelPercent,
+    // Not optional and not defaulted: BRD 24 puts customer verification first in
+    // the handover checklist, so staff must actively confirm it.
+    customerVerified: z.boolean(),
+    conditionNotes: z.string().max(2000).trim().optional(),
+    damageNotes: z.string().max(2000).trim().optional(),
+    accessories: z.array(z.string().max(60)).max(30).optional(),
+    ...conditionSignOff,
+  })
+  .refine((data) => !(data.customerDeclined && data.customerSignedName), {
+    message: 'A customer either signed or declined - not both',
+    path: ['customerSignedName'],
+  });
+
+const returnSchema = z
+  .object({
+    mileage,
+    fuelPercent,
+    conditionNotes: z.string().max(2000).trim().optional(),
+    damageNotes: z.string().max(2000).trim().optional(),
+    cleanliness: z.string().max(200).trim().optional(),
+    needsCleaning: z.boolean().default(false),
+    missingAccessories: z.array(z.string().max(60)).max(30).optional(),
+    ...conditionSignOff,
+  })
+  .refine((data) => !(data.customerDeclined && data.customerSignedName), {
+    message: 'A customer either signed or declined - not both',
+    path: ['customerSignedName'],
+  });
 
 const photoQuerySchema = z.object({
   type: z
@@ -101,7 +135,7 @@ function actorFrom(req: Parameters<typeof requestContext>[0]): RentalActor {
 
 /** Customers may read their own rental; staff may read any. */
 async function assertCanView(bookingId: string, actor: RentalActor): Promise<void> {
-  if (actor.role === 'ADMIN' || actor.role === 'STAFF') return;
+  if (isBackOffice(actor.role)) return;
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -133,7 +167,7 @@ router.use(authenticate);
  */
 router.get(
   '/inspections',
-  authorizeStaff,
+  authorizeOperations,
   validate({ query: inspectionListSchema }),
   asyncHandler(async (req, res) => {
     const query = getValidatedQuery<z.infer<typeof inspectionListSchema>>(req);
@@ -160,7 +194,7 @@ router.get(
 
 router.post(
   '/booking/:bookingId/pickup',
-  authorizeStaff,
+  authorizeOperations,
   validate({ params: bookingIdParam, body: pickupSchema }),
   asyncHandler(async (req, res) => {
     const rental = await rentalsService.recordPickup(
@@ -174,7 +208,7 @@ router.post(
 
 router.post(
   '/booking/:bookingId/return',
-  authorizeStaff,
+  authorizeOperations,
   validate({ params: bookingIdParam, body: returnSchema }),
   asyncHandler(async (req, res) => {
     const result = await rentalsService.recordReturn(
@@ -194,7 +228,7 @@ router.post(
 
 router.post(
   '/booking/:bookingId/close',
-  authorizeStaff,
+  authorizeOperations,
   validate({ params: bookingIdParam }),
   asyncHandler(async (req, res) => {
     const rental = await rentalsService.closeRental(req.params.bookingId as string, actorFrom(req));
@@ -206,7 +240,7 @@ router.post(
 
 router.post(
   '/inspections/:inspectionId/photos',
-  authorizeStaff,
+  authorizeOperations,
   validate({ params: z.object({ inspectionId: z.string().uuid('Invalid inspection id') }) }),
   uploadVehicleImages,
   validate({ query: photoQuerySchema }),
@@ -231,7 +265,7 @@ router.post(
 
 router.post(
   '/charges/:chargeId/settle',
-  authorizeStaff,
+  authorizeOperations,
   validate({ params: chargeIdParam }),
   asyncHandler(async (req, res) => {
     const rental = await rentalsService.settleChargeFromDeposit(
@@ -275,7 +309,7 @@ router.post(
 
 router.patch(
   '/extensions/:extensionId/review',
-  authorizeStaff,
+  authorizeOperations,
   validate({ params: extensionIdParam, body: extensionReviewSchema }),
   asyncHandler(async (req, res) => {
     const input = req.body as z.infer<typeof extensionReviewSchema>;

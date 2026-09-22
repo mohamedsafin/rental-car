@@ -21,6 +21,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getData, patchData } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import type { NormalisedApiError } from '../types/api';
+import SetupChecklist from '../components/SetupChecklist';
 
 interface Setting {
   key: string;
@@ -93,23 +94,20 @@ export default function SettingsPage() {
         </p>
       </div>
 
+      {/*
+        Here rather than on the dashboard.
+        
+        What is switched off is worth knowing, but it belongs beside the fields
+        that switch it on - not on the screen an owner opens every morning to
+        see what needs doing today. It disappears once the blanks that matter
+        are filled.
+      */}
+      <SetupChecklist />
+
       {error && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
           {error}
         </p>
-      )}
-
-      {data && data.unconfigured > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-medium text-amber-900">
-            {data.unconfigured} setting{data.unconfigured === 1 ? '' : 's'} still unconfigured
-          </p>
-          <p className="mt-1 text-xs text-amber-800">
-            Until each is filled in, the system omits rather than invents: no VAT is applied, no
-            cancellation fee is charged, and invoices state that they are not valid tax invoices.
-            Every one of those is visible to a customer.
-          </p>
-        </div>
       )}
 
       {!canEdit && (

@@ -75,12 +75,24 @@ model SystemSetting {
 // PHASE 2 - Identity, access control and audit
 // ===========================================================================
 
-/// The three roles from the BRD. An enum rather than a roles table: there are
-/// exactly three, they are fixed, and a join buys us nothing.
+/**
+ * Who someone is, and therefore what they can reach.
+ * Three roles were not enough: a counter clerk could read the whole payments
+ * and deposits ledger, because "staff" meant everybody who was not a customer.
+ * The four back-office roles below are ordered by reach - ADMIN sees
+ * everything, INSPECTOR only the cars.
+ */
 enum Role {
   CUSTOMER
-  ADMIN
+  /// Counter and fleet staff. Day-to-day rental work, no money reports.
   STAFF
+  /// Runs a branch: everything STAFF can do, plus reports and pricing.
+  MANAGER
+  /// Money only - payments, deposits, invoices, reports. No car handovers.
+  ACCOUNTANT
+  /// Handovers, returns and inspections. Nothing financial.
+  INSPECTOR
+  ADMIN
 }
 
 enum UserStatus {
@@ -131,7 +143,16 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Which branch this member of staff works at. Null for owners, and for
+  /// customers, who belong to no branch.
+  branchId String?   @db.Uuid
+  branch   Location? @relation("BranchStaff", fields: [branchId], references: [id], onDelete: SetNull)
+
   refreshTokens          RefreshToken[]
+  verificationTokens     VerificationToken[]
+  agreementsWitnessed    RentalAgreement[]      @relation("AgreementStaff")
+  accidentsReported      AccidentReport[]       @relation("AccidentReporter")
+  expensesRecorded       VehicleExpense[]       @relation("ExpenseRecorder")
   auditLogs              AuditLog[]
   bookings               Booking[]
   customer               Customer?
@@ -172,6 +193,42 @@ model User {
 ///
 /// We store a SHA-256 hash of the token, not the token. If this table leaks,
 /// the hashes cannot be replayed as tokens.
+/// What a one-time link is for. One table, because the mechanics are
+/// identical and two would drift apart.
+enum VerificationPurpose {
+  PASSWORD_RESET
+  EMAIL_VERIFICATION
+}
+
+/**
+ * A single-use link sent by email.
+ * The raw token is emailed and NEVER stored - only its SHA-256, exactly as
+ * refresh tokens are handled. A database dump therefore does not hand anybody
+ * a working password-reset link for every account in it.
+ * `usedAt` rather than deletion on use: a link that has already been followed
+ * must be distinguishable from one that never existed, so a second click can
+ * be answered honestly instead of looking like a forgery.
+ */
+model VerificationToken {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  purpose   VerificationPurpose
+  /// SHA-256 of the raw token. Unique so a lookup is a single index hit.
+  tokenHash String              @unique
+  expiresAt DateTime            @db.Timestamptz(3)
+  usedAt    DateTime?           @db.Timestamptz(3)
+
+  /// For the audit trail: where the request to send it came from.
+  requestedIp String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
+  @@map("verification_tokens")
+}
+
 model RefreshToken {
   id     String @id @default(uuid()) @db.Uuid
   userId String @db.Uuid
@@ -238,6 +295,57 @@ model AuditLog {
 // ===========================================================================
 // PHASE 3 - Fleet: categories, vehicles, images, features, locations
 // ===========================================================================
+
+/// Who a rental is billed to. A company hiring six cars for its staff is a
+/// different customer from the person driving one of them.
+enum CustomerType {
+  INDIVIDUAL
+  CORPORATE
+}
+
+/// A fine's issuing authority decides who it is disputed with and how it is
+/// paid, so traffic and parking are not one thing.
+enum FineType {
+  TRAFFIC
+  PARKING
+  OTHER
+}
+
+/// Where a rental agreement is in its life. SIGNED is the only state that is
+/// worth anything in a dispute.
+enum AgreementStatus {
+  DRAFT
+  ISSUED
+  SIGNED
+  VOID
+}
+
+/// An accident is a claim before it is a repair, and the stages are what an
+/// insurer and a garage each need to see.
+enum AccidentStatus {
+  REPORTED
+  CLAIM_SUBMITTED
+  ASSESSED
+  IN_REPAIR
+  COMPLETED
+  CLOSED
+}
+
+/// What a vehicle costs its owner. Revenue is already recorded elsewhere;
+/// these are the other half of "did this car make money".
+enum ExpenseType {
+  FINANCE
+  DEPRECIATION
+  INSURANCE
+  MAINTENANCE
+  TYRES
+  REGISTRATION
+  CLEANING
+  ACCIDENT
+  FUEL
+  SALIK
+  OTHER
+}
 
 enum VehicleStatus {
   AVAILABLE
@@ -358,6 +466,9 @@ model Vehicle {
   variant            String?
   /// UAE plate. Unique across the fleet - BRD 41 requires it.
   registrationNumber String  @unique
+  /// Chassis number. Every insurer, the RTA and any buyer asks for it, and it
+  /// is the only identifier that survives a change of plate.
+  vin                String? @unique
 
   categoryId String          @db.Uuid
   category   VehicleCategory @relation(fields: [categoryId], references: [id])
@@ -390,8 +501,16 @@ model Vehicle {
 
   description String?
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  /// --- What the car cost, so profitability can be worked out -----------
+  /// All optional: a fleet bought before this system existed should not be
+  /// forced to invent figures.
+  purchasePrice Decimal?  @db.Decimal(12, 2)
+  purchaseDate  DateTime? @db.Date
+  /// Latest valuation, for depreciation and for deciding what to sell.
+  currentValue  Decimal?  @db.Decimal(12, 2)
+
   /// Soft delete: a vehicle with rental history must never be hard-deleted.
   deletedAt DateTime?
 
@@ -405,6 +524,8 @@ model Vehicle {
   maintenanceRecords MaintenanceRecord[]
   insuranceRecords   InsuranceRecord[]
   documents          VehicleDocument[]
+  accidents          AccidentReport[]
+  expenses           VehicleExpense[]
   coupons            Coupon[]
 
   // Indexes chosen for the queries the customer site actually runs: browse by
@@ -472,6 +593,7 @@ model Location {
   deletedAt DateTime?
 
   vehicles        Vehicle[]
+  staff           User[]    @relation("BranchStaff")
   pickupBookings  Booking[] @relation("BookingPickupLocation")
   dropoffBookings Booking[] @relation("BookingDropoffLocation")
 
@@ -489,6 +611,29 @@ model Location {
 /// Which of these BLOCK a vehicle is the single most important decision in the
 /// availability engine - see `BLOCKING_STATUSES` in the availability module.
 /// How the customer intends to settle the rental.
+/// How the rental itself is paid for.
+enum BillingCycle {
+  /// The whole rental, once, before collection. Right for a few days.
+  UPFRONT
+  /// One payment per month of the term (BRD 16 long-term pricing).
+  ///
+  /// The normal arrangement for a long-term fleet: nobody hands over six
+  /// months of rent before they have the keys. The first month and the deposit
+  /// are taken to confirm; the rest fall due monthly.
+  MONTHLY
+}
+
+/// Where one monthly payment stands.
+enum InstalmentStatus {
+  /// Not yet due.
+  SCHEDULED
+  /// Due now or overdue, and unpaid.
+  DUE
+  PAID
+  /// The booking ended before this month started.
+  CANCELLED
+}
+
 enum PaymentMethod {
   /// Card through the gateway, before the booking is confirmed.
   ONLINE
@@ -590,6 +735,10 @@ model Booking {
   /// afterwards by the customer - switching to cash after reserving a car
   /// online would be a way to hold stock for free.
   paymentMethod   PaymentMethod @default(ONLINE)
+  /// UPFRONT or MONTHLY. Fixed when the booking is made.
+  billingCycle    BillingCycle  @default(UPFRONT)
+  /// Whole months in the term, for a MONTHLY booking. Null for UPFRONT.
+  termMonths      Int?
   taxAmount       Decimal       @default(0) @db.Decimal(10, 2)
   /// Rental total EXCLUDING the deposit.
   totalAmount     Decimal       @db.Decimal(10, 2)
@@ -617,6 +766,10 @@ model Booking {
 
   services          BookingService[]
   statusHistory     BookingStatusHistory[]
+  agreement         RentalAgreement?
+  additionalDrivers AdditionalDriver[]
+  accidents         AccidentReport[]
+  instalments       RentalInstalment[]
   payments          Payment[]
   /// Named `deposit`, not `securityDeposit`: that name is already taken by the
   /// Decimal snapshot column above. The column is the AGREED amount; this
@@ -766,6 +919,12 @@ model Customer {
   userId String @unique @db.Uuid
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  /// Individual by default. A corporate hire is billed to the company, whose
+  /// own TRN has to appear on the invoice for them to reclaim the VAT.
+  customerType CustomerType @default(INDIVIDUAL)
+  companyName  String?
+  companyTrn   String?
+
   /// Decides which documents are required. Null until the customer says.
   residencyStatus ResidencyStatus?
 
@@ -860,6 +1019,62 @@ model CustomerDocument {
 /// The price is COPIED here, not looked up through the relation. If the admin
 /// raises the child-seat price next month, an invoice issued last month must
 /// still show what the customer actually agreed to pay.
+/// One month of a long-term rental, and whether it has been paid.
+///
+/// The schedule is generated in full when the booking is made, so the customer
+/// can see every date and amount before committing - a rental whose later
+/// costs appear one month at a time is a rental nobody can budget for.
+///
+/// Amounts are a SNAPSHOT like every other figure on a booking: a rate rise
+/// halfway through a six-month term does not reach into months already agreed.
+model RentalInstalment {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  /// 1 for the first month, 2 for the second, and so on.
+  sequence    Int
+  /// The month this payment covers.
+  periodStart DateTime @db.Timestamptz(3)
+  periodEnd   DateTime @db.Timestamptz(3)
+  /// When the customer has to have paid it.
+  dueAt       DateTime @db.Timestamptz(3)
+
+  /// VAT-inclusive, and split the way the booking stores money so an invoice
+  /// for one month still reconciles.
+  ///
+  /// This is the RENT, and it never moves: it is what was agreed when the
+  /// booking was made. Anything billed alongside it - Salik, a fine - lands in
+  /// `extrasAmount` instead, so a customer comparing this month against last
+  /// can still see the rent is unchanged.
+  amount       Decimal @db.Decimal(10, 2)
+  /// Charges billed WITH this month's rent, rather than taken from the
+  /// deposit. The sum of the additional charges pointing at this instalment.
+  extrasAmount Decimal @default(0) @db.Decimal(10, 2)
+  subtotal     Decimal @db.Decimal(10, 2)
+  taxAmount    Decimal @default(0) @db.Decimal(10, 2)
+  currency     String  @default("AED")
+
+  status InstalmentStatus @default(SCHEDULED)
+
+  /// The payment that settled it, once one has.
+  paymentId String?   @unique @db.Uuid
+  payment   Payment?  @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  paidAt    DateTime?
+
+  /// Charges billed with this month.
+  charges AdditionalCharge[]
+  /// The tax invoice for this month, once it has been paid.
+  invoice Invoice?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([bookingId, sequence])
+  @@index([status, dueAt])
+  @@map("rental_instalments")
+}
+
 model BookingService {
   id        String  @id @default(uuid()) @db.Uuid
   bookingId String  @db.Uuid
@@ -971,9 +1186,11 @@ enum DeductionCategory {
 /// provider's problem, never ours. All we keep is the provider's own reference
 /// so a transaction can be reconciled.
 model Payment {
-  id        String  @id @default(uuid()) @db.Uuid
-  bookingId String  @db.Uuid
-  booking   Booking @relation(fields: [bookingId], references: [id])
+  id         String            @id @default(uuid()) @db.Uuid
+  /// Set when this payment settles one month of a long-term rental.
+  instalment RentalInstalment?
+  bookingId  String            @db.Uuid
+  booking    Booking           @relation(fields: [bookingId], references: [id])
 
   type   PaymentType
   status PaymentStatus @default(PENDING)
@@ -1077,8 +1294,13 @@ model DepositTransaction {
   /// Always POSITIVE. The `type` says which direction it moves.
   amount Decimal                @db.Decimal(10, 2)
 
-  category DeductionCategory?
-  reason   String?
+  category     DeductionCategory?
+  reason       String?
+  /// Supporting evidence for a deduction: the fine notice, the garage
+  /// invoice, the photograph. A deduction a customer disputes is only as
+  /// good as what is attached to it.
+  documentKey  String?
+  documentName String?
 
   /// Who recorded it. Null for automatic movements.
   createdById String? @db.Uuid
@@ -1249,6 +1471,17 @@ model VehicleInspection {
   inspectedById String? @db.Uuid
   inspectedBy   User?   @relation("InspectionStaff", fields: [inspectedById], references: [id], onDelete: SetNull)
 
+  /// --- The customer's own acknowledgement of the car's condition --------
+  /// `customerVerified` below is STAFF saying they checked an ID. That is a
+  /// different claim from the customer agreeing the car had this damage, and
+  /// conflating the two is how a pre-existing scratch becomes an argument.
+  customerSignedName   String?
+  customerSignedAt     DateTime? @db.Timestamptz(3)
+  /// Private storage key for a drawn signature, when one is captured.
+  customerSignatureKey String?
+  /// Set when the customer refuses to sign, which is itself worth recording.
+  customerDeclinedAt   DateTime? @db.Timestamptz(3)
+
   /// Set at pickup when staff confirmed the customer's identity (BRD 24).
   customerVerified Boolean @default(false)
 
@@ -1298,9 +1531,19 @@ model BookingExtension {
   status ExtensionStatus @default(REQUESTED)
 
   /// Extra billable days and what they cost, priced when the request is made.
-  additionalDays   Int
-  additionalAmount Decimal @db.Decimal(10, 2)
-  currency         String  @default("AED")
+  additionalDays     Int
+  /// VAT-INCLUSIVE total for the extra days. What the customer pays.
+  additionalAmount   Decimal @db.Decimal(10, 2)
+  /// The same figure split the way the booking stores money, so approving an
+  /// extension can add each part to the right column.
+  ///
+  /// Without the split, approval added the VAT-inclusive total to the
+  /// booking's PRE-VAT subtotal and never touched its tax line - so after any
+  /// extension the invoice no longer added up and its VAT figure was
+  /// understated. On a UAE tax invoice that is not a cosmetic problem.
+  additionalSubtotal Decimal @default(0) @db.Decimal(10, 2)
+  additionalTax      Decimal @default(0) @db.Decimal(10, 2)
+  currency           String  @default("AED")
 
   /// Why an extension was refused - usually because the car is booked next.
   rejectionReason String?
@@ -1325,6 +1568,12 @@ model BookingExtension {
 /// deposit, invoiced, or waived, and the record of the decision should survive
 /// whichever happens.
 model AdditionalCharge {
+  /// Set when this charge is billed with a month of a long-term rental rather
+  /// than taken out of the deposit. The deposit is for damage; a toll on a
+  /// monthly customer belongs on the invoice they are already paying.
+  instalmentId String?           @db.Uuid
+  instalment   RentalInstalment? @relation(fields: [instalmentId], references: [id], onDelete: SetNull)
+
   id        String  @id @default(uuid()) @db.Uuid
   bookingId String  @db.Uuid
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
@@ -1461,7 +1710,8 @@ model Damage {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  photos DamagePhoto[]
+  photos    DamagePhoto[]
+  accidents AccidentReport[]
 
   @@index([vehicleId])
   @@index([bookingId])
@@ -1503,11 +1753,18 @@ model TrafficFine {
 
   /// The authority's own reference. Unique: the same fine must not be entered
   /// twice and charged twice.
-  fineNumber  String   @unique
+  fineNumber   String   @unique
+  /// Traffic or parking. Different issuing authorities, different dispute
+  /// routes and different payment channels, so they are not one thing.
+  fineType     FineType @default(TRAFFIC)
+  /// The fine notice itself, in private storage. A charge a customer disputes
+  /// is only as good as the paperwork behind it.
+  documentKey  String?
+  documentName String?
   /// When the offence happened - this is what matches it to a rental.
-  violationAt DateTime @db.Timestamptz(3)
-  violation   String?
-  location    String?
+  violationAt  DateTime @db.Timestamptz(3)
+  violation    String?
+  location     String?
 
   amount     Decimal @db.Decimal(10, 2)
   /// The company's own handling fee, kept separate from the authority's
@@ -1627,8 +1884,11 @@ model InsuranceRecord {
   startDate  DateTime @db.Date
   expiryDate DateTime @db.Date
 
-  premium  Decimal? @db.Decimal(10, 2)
-  currency String   @default("AED")
+  premium      Decimal? @db.Decimal(10, 2)
+  /// What the customer pays before the insurer pays anything. It belongs on
+  /// the rental agreement, so a driver knows their exposure before they drive.
+  excessAmount Decimal? @db.Decimal(10, 2)
+  currency     String   @default("AED")
 
   /// Set when a newer policy supersedes this one, so the history survives.
   isActive Boolean @default(true)
@@ -1729,6 +1989,18 @@ model Invoice {
 
   bookingId String  @db.Uuid
   booking   Booking @relation(fields: [bookingId], references: [id])
+
+  /**
+   * The month this invoices, on a long-term rental.
+   * A monthly rental is not one supply, it is one a month - and UAE VAT wants
+   * a tax invoice per supply, not a single document at the end of a six-month
+   * term. Null on an ordinary booking, which really is one supply.
+   * Unique, so a month cannot be invoiced twice. A cancelled invoice keeps its
+   * link, which is why the re-issue path goes through a credit note rather
+   * than a second invoice on the same row.
+   */
+  instalmentId String?           @unique @db.Uuid
+  instalment   RentalInstalment? @relation(fields: [instalmentId], references: [id], onDelete: SetNull)
 
   customerId String @db.Uuid
   customer   User   @relation("InvoiceCustomer", fields: [customerId], references: [id])
@@ -2032,4 +2304,249 @@ model BookingAgreement {
 
   @@unique([bookingId, legalDocumentId])
   @@map("booking_agreements")
+}
+
+/**
+ * The rental agreement: the document the customer signs.
+ * ===========================================================================
+ * WHY IT IS A SNAPSHOT AND NOT A VIEW OF THE BOOKING
+ * ===========================================================================
+ * An agreement is what both sides agreed AT THE MOMENT OF SIGNING. If it were
+ * rendered live from the booking, an extension, a price correction or a change
+ * of insurance policy would silently rewrite a document somebody has already
+ * put their name to - and the copy in the customer's hand would no longer
+ * match the copy on screen. So every figure is copied in when it is issued,
+ * exactly as the invoice does.
+ * Issued once per booking. A corrected agreement voids the old one and takes a
+ * new number, so the history of what was signed survives.
+ */
+model RentalAgreement {
+  id              String  @id @default(uuid()) @db.Uuid
+  agreementNumber String  @unique
+  bookingId       String  @unique @db.Uuid
+  booking         Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  status AgreementStatus @default(ISSUED)
+
+  /// --- Snapshot: the company -------------------------------------------
+  companyName    String?
+  companyAddress String?
+  companyPhone   String?
+  companyEmail   String?
+  companyTrn     String?
+
+  /// --- Snapshot: the hirer ---------------------------------------------
+  customerName     String
+  customerEmail    String
+  customerPhone    String?
+  customerAddress  String?
+  licenceNumber    String?
+  licenceExpiry    DateTime? @db.Date
+  emiratesIdNumber String?
+  passportNumber   String?
+
+  /// --- Snapshot: the vehicle -------------------------------------------
+  vehicleDescription String
+  registrationNumber String
+  vin                String?
+  pickupMileage      Int?
+
+  /// --- Snapshot: the terms ---------------------------------------------
+  pickupAt        DateTime @db.Timestamptz(3)
+  returnAt        DateTime @db.Timestamptz(3)
+  pickupLocation  String?
+  dropoffLocation String?
+  rentalDays      Int
+
+  rentalAmount    Decimal @db.Decimal(10, 2)
+  taxAmount       Decimal @default(0) @db.Decimal(10, 2)
+  totalAmount     Decimal @db.Decimal(10, 2)
+  securityDeposit Decimal @db.Decimal(10, 2)
+  currency        String  @default("AED")
+
+  mileageLimitPerDay Int?
+  extraMileageCharge Decimal? @db.Decimal(10, 2)
+  /// Free text so the client's own wording survives: "return full", "same as
+  /// collected", "pre-paid tank".
+  fuelPolicy         String?
+
+  insurerName  String?
+  policyNumber String?
+  /// What the hirer pays before the insurer pays anything.
+  excessAmount Decimal? @db.Decimal(10, 2)
+
+  /// Who else may drive, as it stood when the agreement was issued.
+  ///
+  /// A snapshot, like everything else here: an unlisted driver is an uninsured
+  /// driver, so "who was authorised on the day they signed" has to stay
+  /// answerable. Adding a driver afterwards means voiding and reissuing, which
+  /// is the same rule the rest of this document follows.
+  additionalDriversText String?
+
+  /// The terms in force when it was signed, copied in full - a link to a
+  /// living document would let the terms change under a signature.
+  termsVersion String?
+  termsBody    String?
+
+  /// --- Signatures --------------------------------------------------------
+  customerSignedName   String?
+  customerSignedAt     DateTime? @db.Timestamptz(3)
+  customerSignatureKey String?
+  customerSignedIp     String?
+
+  staffSignedName String?
+  staffSignedAt   DateTime? @db.Timestamptz(3)
+  staffId         String?   @db.Uuid
+  staff           User?     @relation("AgreementStaff", fields: [staffId], references: [id], onDelete: SetNull)
+
+  /// Why a superseded agreement was voided.
+  voidReason String?
+  voidedAt   DateTime? @db.Timestamptz(3)
+
+  issuedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("rental_agreements")
+}
+
+/**
+ * Somebody else who is allowed to drive the car.
+ * Recorded per booking rather than per customer: permission is granted for one
+ * rental, not for ever. An unlisted driver is an uninsured driver, so the
+ * agreement prints them and the counter has somewhere to put them.
+ */
+model AdditionalDriver {
+  id        String  @id @default(uuid()) @db.Uuid
+  bookingId String  @db.Uuid
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  fullName              String
+  dateOfBirth           DateTime? @db.Date
+  licenceNumber         String
+  licenceIssuingCountry String?
+  licenceExpiry         DateTime? @db.Date
+  phone                 String?
+
+  /// Their licence, in private storage.
+  documentKey  String?
+  documentName String?
+
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
+  @@map("additional_drivers")
+}
+
+/**
+ * An accident, from the roadside to the garage bill.
+ * ===========================================================================
+ * WHY THIS IS NOT THE DAMAGE RECORD
+ * ===========================================================================
+ * A `Damage` is "this car has a dent, here is what we will charge for it". An
+ * accident is a CLAIM: there is a police report without which no UAE insurer
+ * will pay, an excess the hirer owes whatever the insurer decides, a garage,
+ * and a car earning nothing until it comes back. None of that fits in a
+ * damage charge, and forcing it there is how the police report number ends up
+ * in a free-text note.
+ * It can carry the damage record it produced, so the customer-facing charge
+ * and the insurance claim stay linked without being the same row.
+ */
+model AccidentReport {
+  id        String   @id @default(uuid()) @db.Uuid
+  reference String   @unique
+  vehicleId String   @db.Uuid
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  /// The rental it happened on, when it happened on one.
+  bookingId String?  @db.Uuid
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  /// The charge raised against the hirer, if any.
+  damageId  String?  @db.Uuid
+  damage    Damage?  @relation(fields: [damageId], references: [id], onDelete: SetNull)
+
+  status AccidentStatus @default(REPORTED)
+
+  occurredAt  DateTime @db.Timestamptz(3)
+  location    String?
+  description String
+
+  /// --- The police report. No UAE insurer pays without one. --------------
+  policeReportNumber String?
+  policeReportDate   DateTime? @db.Date
+
+  /// --- The claim ---------------------------------------------------------
+  insurerName      String?
+  policyNumber     String?
+  claimNumber      String?
+  claimSubmittedAt DateTime? @db.Timestamptz(3)
+  claimSettledAt   DateTime? @db.Timestamptz(3)
+  claimPaidAmount  Decimal?  @db.Decimal(10, 2)
+
+  /// What the hirer owes regardless of the insurer's decision.
+  excessAmount      Decimal? @db.Decimal(10, 2)
+  customerLiability Decimal? @db.Decimal(10, 2)
+
+  /// --- The repair --------------------------------------------------------
+  garageName     String?
+  repairEstimate Decimal? @db.Decimal(10, 2)
+  repairCost     Decimal? @db.Decimal(10, 2)
+  currency       String   @default("AED")
+
+  /// How long the car earned nothing. The cost nobody counts.
+  offRoadFrom  DateTime? @db.Timestamptz(3)
+  offRoadUntil DateTime? @db.Timestamptz(3)
+
+  notes String?
+
+  reportedById String? @db.Uuid
+  reportedBy   User?   @relation("AccidentReporter", fields: [reportedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vehicleId])
+  @@index([status])
+  @@map("accident_reports")
+}
+
+/**
+ * What a vehicle costs.
+ * Revenue was already recorded - payments, invoices, charges - and cost was
+ * not recorded anywhere, which is why "which of my cars makes money" had no
+ * answer. One flat table rather than a column per cost type: a fleet grows new
+ * kinds of expense (a new tyre supplier, a toll account fee) faster than a
+ * schema should grow columns.
+ * Maintenance and insurance records can post here automatically, so a cost
+ * entered once is not entered twice.
+ */
+model VehicleExpense {
+  id        String  @id @default(uuid()) @db.Uuid
+  vehicleId String  @db.Uuid
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  type        ExpenseType
+  amount      Decimal     @db.Decimal(10, 2)
+  currency    String      @default("AED")
+  /// The date the cost belongs to, which is not always the date it was typed.
+  incurredAt  DateTime    @db.Timestamptz(3)
+  description String?
+  supplier    String?
+
+  /// Where it came from, when it was posted by another part of the system -
+  /// "MaintenanceRecord", "InsuranceRecord", "AccidentReport".
+  sourceType String?
+  sourceId   String? @db.Uuid
+
+  documentKey  String?
+  documentName String?
+
+  recordedById String? @db.Uuid
+  recordedBy   User?   @relation("ExpenseRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([sourceType, sourceId])
+  @@index([vehicleId, incurredAt])
+  @@index([type])
+  @@map("vehicle_expenses")
 }

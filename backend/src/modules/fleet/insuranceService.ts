@@ -52,6 +52,8 @@ export const insuranceService = {
       startDate: Date;
       expiryDate: Date;
       premium?: string;
+      /// What the hirer pays before the insurer pays anything.
+      excessAmount?: string;
       notes?: string;
     },
     actor: FleetActor,
@@ -80,11 +82,37 @@ export const insuranceService = {
           startDate: input.startDate,
           expiryDate: input.expiryDate,
           premium: input.premium ? new Prisma.Decimal(input.premium) : null,
+          excessAmount: input.excessAmount ? new Prisma.Decimal(input.excessAmount) : null,
           notes: input.notes ?? null,
           isActive: true,
         },
       });
     });
+
+    /*
+     * The premium is a cost of owning this car, so it lands on the ledger the
+     * profitability report reads. Entered whole on the day it was paid rather
+     * than spread across the policy year: a figure the owner can reconcile
+     * against a bank statement beats a smoother one they cannot.
+     */
+    if (record.premium && !record.premium.isZero()) {
+      await prisma.vehicleExpense.upsert({
+        where: { sourceType_sourceId: { sourceType: 'InsuranceRecord', sourceId: record.id } },
+        create: {
+          vehicleId: record.vehicleId,
+          type: 'INSURANCE',
+          amount: record.premium,
+          currency: record.currency,
+          incurredAt: record.startDate,
+          description: record.provider + ' - policy ' + record.policyNumber,
+          supplier: record.provider,
+          sourceType: 'InsuranceRecord',
+          sourceId: record.id,
+          recordedById: actor.id,
+        },
+        update: { amount: record.premium, supplier: record.provider },
+      });
+    }
 
     await auditService.record({
       action: 'insurance.recorded',
@@ -296,6 +324,7 @@ export const insuranceService = {
       horizonDays,
       expired: items.filter((item) => item.daysRemaining < 0),
       dueSoon: items.filter((item) => item.daysRemaining >= 0),
+      serviceDue: await serviceDue(horizonDays, today),
     };
   },
 
@@ -354,6 +383,7 @@ function toPublicPolicy(record: {
   startDate: Date;
   expiryDate: Date;
   premium: Prisma.Decimal | null;
+  excessAmount: Prisma.Decimal | null;
   currency: string;
   isActive: boolean;
   notes: string | null;
@@ -367,6 +397,12 @@ function toPublicPolicy(record: {
     startDate: record.startDate.toISOString().slice(0, 10),
     expiryDate: record.expiryDate.toISOString().slice(0, 10),
     premium: record.premium?.toFixed(2) ?? null,
+    /*
+     * The figure the driver actually cares about. It is printed on the rental
+     * agreement, so a hirer knows their exposure before they drive rather than
+     * after they crash.
+     */
+    excessAmount: record.excessAmount?.toFixed(2) ?? null,
     currency: record.currency,
     isActive: record.isActive,
     notes: record.notes,
@@ -400,4 +436,112 @@ function toPublicDocument(document: {
     // Deliberately no URL. The bytes come only from the streaming route.
     createdAt: document.createdAt.toISOString(),
   };
+}
+
+/**
+ * Cars due a service, by date or by odometer.
+ * ===========================================================================
+ * WHY THIS SITS BESIDE THE EXPIRIES AND NOT IN MAINTENANCE
+ * ===========================================================================
+ * The next service was already being recorded at every service - and read by
+ * nothing. A date typed into a field nobody looks at is not a reminder, it is
+ * a note, and the car quietly went past 40,000km with nobody told.
+ *
+ * It belongs on the expiry screen because it is the same question in a
+ * different unit: what is about to make a car unrentable? An expired policy
+ * makes it illegal, an overdue service makes it unsafe, and staff should not
+ * have to visit two screens to find out.
+ *
+ * ODOMETER IS NOT A DATE, so the two are reported separately rather than
+ * forced into one number. A car can be four months early on time and 900km
+ * late on distance, and averaging those would hide both.
+ */
+const SERVICE_KM_WARNING = 1_000;
+
+export interface ServiceDueItem {
+  kind: 'SERVICE';
+  id: string;
+  vehicleId: string;
+  vehicle: string;
+  label: string;
+  /// Either may be null: a garage might set a date, a distance, or both.
+  dueDate: string | null;
+  daysRemaining: number | null;
+  dueMileage: number | null;
+  currentMileage: number;
+  kmRemaining: number | null;
+  /// True once either target has passed. The screen leads with these.
+  overdue: boolean;
+}
+
+async function serviceDue(horizonDays: number, today: Date) {
+  const horizon = new Date(today);
+  horizon.setUTCDate(horizon.getUTCDate() + horizonDays);
+
+  /*
+   * The LATEST target per vehicle wins.
+   *
+   * A car serviced three times has three "next service" rows, two of which
+   * are already history. Ordering by the service date and keeping the first
+   * per vehicle is what makes the answer the current one rather than a
+   * reminder from two services ago that everybody has already acted on.
+   */
+  const records = await prisma.maintenanceRecord.findMany({
+    where: {
+      vehicle: { deletedAt: null },
+      OR: [{ nextServiceAt: { not: null } }, { nextServiceMileage: { not: null } }],
+    },
+    include: {
+      vehicle: {
+        select: {
+          id: true,
+          brand: true,
+          model: true,
+          registrationNumber: true,
+          currentMileage: true,
+        },
+      },
+    },
+    orderBy: { startsAt: 'desc' },
+  });
+
+  const seen = new Set<string>();
+  const due: ServiceDueItem[] = [];
+
+  for (const record of records) {
+    if (seen.has(record.vehicleId)) continue;
+    seen.add(record.vehicleId);
+
+    const daysRemaining =
+      record.nextServiceAt === null ? null : daysBetween(today, record.nextServiceAt);
+    const kmRemaining =
+      record.nextServiceMileage === null
+        ? null
+        : record.nextServiceMileage - record.vehicle.currentMileage;
+
+    const dueByDate = daysRemaining !== null && record.nextServiceAt! <= horizon;
+    const dueByMileage = kmRemaining !== null && kmRemaining <= SERVICE_KM_WARNING;
+    if (!dueByDate && !dueByMileage) continue;
+
+    due.push({
+      kind: 'SERVICE' as const,
+      id: record.id,
+      vehicleId: record.vehicle.id,
+      vehicle: `${record.vehicle.brand} ${record.vehicle.model} (${record.vehicle.registrationNumber})`,
+      label: record.description,
+      dueDate: record.nextServiceAt?.toISOString().slice(0, 10) ?? null,
+      daysRemaining,
+      dueMileage: record.nextServiceMileage,
+      currentMileage: record.vehicle.currentMileage,
+      kmRemaining,
+      overdue: (daysRemaining !== null && daysRemaining < 0) || (kmRemaining !== null && kmRemaining < 0),
+    });
+  }
+
+  // Worst first, counting a missed distance the same way as a missed date.
+  return due.sort((a, b) => {
+    const rank = (item: ServiceDueItem) =>
+      Math.min(item.daysRemaining ?? 9_999, item.kmRemaining === null ? 9_999 : item.kmRemaining / 50);
+    return rank(a) - rank(b);
+  });
 }

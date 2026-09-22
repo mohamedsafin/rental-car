@@ -23,10 +23,26 @@ import { tokenStore } from './tokenStore';
 
 const baseURL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000/api/v1';
 
+/*
+ * Which app this is, so the API gives us OUR OWN refresh cookie.
+ *
+ * Browsers file cookies by host and ignore the port, so the customer site and
+ * this app shared one "keep me signed in" cookie. Whoever signed in last owned
+ * it: logging into the customer site overwrote the admin's, and the next time
+ * this app renewed its access token it came back holding a customer's session -
+ * every staff screen then refusing permission while the header still showed
+ * the admin's name.
+ *
+ * Sent on EVERY request, not just the auth ones, so a new endpoint cannot
+ * forget it and silently fall back to sharing the customer's cookie.
+ */
+const CLIENT_APP_HEADER = 'X-Client-App';
+const CLIENT_APP = 'admin';
+
 export const api: AxiosInstance = axios.create({
   baseURL,
   timeout: 15000,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', [CLIENT_APP_HEADER]: CLIENT_APP },
   // Required for the httpOnly refresh cookie to be sent and set.
   withCredentials: true,
 });
@@ -55,13 +71,32 @@ let refreshPromise: Promise<string> | null = null;
 async function refreshAccessToken(): Promise<string> {
   // A bare axios call, not `api`: using the instance would re-enter this
   // interceptor and recurse forever.
-  const response = await axios.post<ApiSuccess<{ accessToken: string }>>(
+  const response = await axios.post<ApiSuccess<{ accessToken: string; user?: { id: string } }>>(
     `${baseURL}/auth/refresh`,
     {},
-    { withCredentials: true },
+    // The header matters most HERE: this is the call that reads the cookie.
+    { withCredentials: true, headers: { [CLIENT_APP_HEADER]: CLIENT_APP } },
   );
+
+  /*
+   * A renewal must never quietly change who you are.
+   *
+   * Separate cookies make the swap that happened before impossible, but this
+   * is the belt to that braces: if a refresh ever comes back as a different
+   * person, the honest response is to end the session rather than carry on
+   * drawing one user's screens with another user's data.
+   */
+  const refreshedUser = response.data.data.user;
+  const knownUser = tokenStore.getUserId();
+  if (refreshedUser && knownUser && refreshedUser.id !== knownUser) {
+    tokenStore.clear();
+    onSessionExpired?.();
+    throw new Error('This session now belongs to a different user. Please sign in again.');
+  }
+
   const token = response.data.data.accessToken;
   tokenStore.set(token);
+  if (refreshedUser) tokenStore.setUserId(refreshedUser.id);
   return token;
 }
 

@@ -102,6 +102,8 @@ export const usersService = {
       ...(input.country !== undefined && { country: input.country }),
       ...(input.role !== undefined && { role: input.role }),
       ...(input.status !== undefined && { status: input.status }),
+      // '' means "no branch"; undefined means "not mentioned". See the schema.
+      ...(input.branchId !== undefined && { branchId: input.branchId || null }),
     });
 
     // A demoted or suspended user must not keep working with tokens issued

@@ -98,6 +98,14 @@ async function main(): Promise<void> {
     { key: 'cancellation.free_window_hours', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Free cancellation window (hours)' },
     { key: 'cancellation.fee_percentage', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Cancellation fee (%)' },
 
+    // Seeded EMPTY, like every other client figure. Empty means NO handling
+    // fee is added - which is the safe way to be wrong. Inventing a plausible
+    // "AED 25 admin fee" would quietly bill every customer for a charge the
+    // client never approved (BRD 28, 29).
+    { key: 'fines.service_fee', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Traffic fine handling fee (AED)', description: 'Added to the authority’s own fine amount when recovering it from a customer. Blank = no fee. Staff can override per fine.' },
+    { key: 'tolls.auto_write_off_below', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Write off tolls below (AED)', description: 'On SHORT rentals only, a toll under this is written off instead of chased - the staff time costs more than the money. Blank = never write off automatically. Monthly rentals are never written off; the charge goes on the next invoice.' },
+    { key: 'tolls.service_fee', value: '', valueType: 'NUMBER', category: 'RENTAL_POLICY', label: 'Salik/toll handling fee (AED)', description: 'Added to each toll crossing when recovering it. Blank = no fee. Staff can override per crossing.' },
+
     // Still seeded EMPTY. BRD 12 says the exact list is client-approved, and
     // requiring the wrong document would wrongly block a paying customer -
     // or, worse, wrongly let one through. Valid values are the DocumentType
@@ -200,6 +208,16 @@ async function main(): Promise<void> {
   // number that ends up on a real invoice. The admin sets the price, then
   // activates the service.
   const services = [
+    /*
+     * A CHAUFFEUR, which is not the same thing as the line below it.
+     *
+     * "With driver" means the company supplies somebody to drive the car.
+     * "Additional driver" means the customer names a second person who is
+     * allowed to drive it themselves. Customers confuse the two constantly,
+     * so the names say which is which, and the chauffeur is charged per DAY
+     * because that is what a driver costs.
+     */
+    { name: 'With Driver (Chauffeur)', slug: 'with-driver', chargeType: 'PER_DAY', maxQuantity: 1, displayOrder: 0 },
     { name: 'Additional Driver', slug: 'additional-driver', chargeType: 'PER_BOOKING', maxQuantity: 3, displayOrder: 1 },
     { name: 'Child Seat', slug: 'child-seat', chargeType: 'PER_DAY', maxQuantity: 3, displayOrder: 2 },
     { name: 'GPS Navigation Device', slug: 'gps-device', chargeType: 'PER_DAY', maxQuantity: 1, displayOrder: 3 },

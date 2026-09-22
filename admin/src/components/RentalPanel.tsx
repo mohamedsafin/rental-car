@@ -32,6 +32,20 @@ const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000/
   '',
 );
 
+/**
+ * Booking says the car is out (or back) but no rental exists - the handover
+ * was never recorded, so the counter can still capture it late.
+ */
+const NEVER_RECORDED_STATUSES: string[] = [
+  'ACTIVE',
+  'EXTENSION_REQUESTED',
+  'RETURN_PENDING',
+  'RETURNED',
+];
+
+/** Finished business. Reopening these would be worse than leaving them be. */
+const TERMINAL_STATUSES: string[] = ['COMPLETED', 'CANCELLED'];
+
 function InspectionCard({
   inspection,
   bookingId,
@@ -257,11 +271,37 @@ export default function RentalPanel({
         <HandoverForm bookingId={booking.id} currentMileage={vehicleMileage} />
       )}
 
+      {/*
+        Two very different situations used to share one misleading message.
+        A booking that says the car is out or back, with no rental behind it,
+        is not "waiting to be handed over" - it is inconsistent, and telling
+        staff to move it back to "ready for pickup" sent them looking for a
+        transition the status machine does not have.
+      */}
       {!rental && booking.status !== 'READY_FOR_PICKUP' && (
-        <p className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
-          The vehicle has not been handed over yet. Move the booking to &ldquo;ready for
-          pickup&rdquo; first.
-        </p>
+        <>
+          {NEVER_RECORDED_STATUSES.includes(booking.status) ? (
+            <>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+                <p className="font-medium text-amber-900">
+                  This booking says {booking.status.replace(/_/g, ' ').toLowerCase()}, but the
+                  handover was never recorded.
+                </p>
+                <p className="mt-1 text-amber-800">
+                  Record it below with the readings the car actually went out on. The booking
+                  returns to active, and the return and its inspection then work normally.
+                </p>
+              </div>
+              <HandoverForm bookingId={booking.id} currentMileage={vehicleMileage} />
+            </>
+          ) : (
+            <p className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+              {TERMINAL_STATUSES.includes(booking.status)
+                ? `This booking is ${booking.status.toLowerCase()} and has no rental attached, so there is nothing to inspect or close.`
+                : 'The vehicle has not been handed over yet. Move the booking to “ready for pickup” first.'}
+            </p>
+          )}
+        </>
       )}
 
       {rental?.status === 'ACTIVE' && <ReturnForm bookingId={booking.id} rental={rental} />}

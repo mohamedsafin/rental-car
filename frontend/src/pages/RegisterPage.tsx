@@ -13,8 +13,10 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import FormField from '../components/FormField';
+import AuthVisual from '../components/AuthVisual';
 import { registerSchema, type RegisterFormValues } from '../features/auth/schemas';
 import type { NormalisedApiError } from '../types/api';
 
@@ -37,6 +39,7 @@ export default function RegisterPage() {
         fullName: values.fullName,
         email: values.email,
         password: values.password,
+        dateOfBirth: values.dateOfBirth,
         // Send undefined rather than '' so the optional fields stay optional.
         phone: values.phone || undefined,
         country: values.country || undefined,
@@ -58,76 +61,92 @@ export default function RegisterPage() {
   });
 
   return (
-    <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-bold text-ink-900">Create your account</h1>
-      <p className="mt-1 text-sm text-ink-600">Book vehicles and manage your rentals.</p>
+    <div className="page-container pt-8 sm:pt-12">
+      <div className="grid gap-12 lg:grid-cols-2 lg:gap-16">
+        <div className="mx-auto flex w-full max-w-md flex-col justify-center py-6 lg:py-12">
+          <p className="section-eyebrow">New here</p>
+          <h1 className="display-heading mt-4 text-[2.5rem] sm:text-5xl">
+            Create your <span className="font-editorial">account.</span>
+          </h1>
+          <p className="mt-3 text-[15px] text-ink-500">Book vehicles and manage your rentals.</p>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
-        {serverError && (
-          <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {serverError}
-          </div>
-        )}
+          <form onSubmit={onSubmit} className="mt-10 space-y-5" noValidate>
+            {serverError && (
+              <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm text-red-700">
+                {serverError}
+              </div>
+            )}
 
-        <FormField
-          label="Full name"
-          autoComplete="name"
-          error={errors.fullName?.message}
-          {...register('fullName')}
-        />
-        <FormField
-          label="Email"
-          type="email"
-          autoComplete="email"
-          error={errors.email?.message}
-          {...register('email')}
-        />
-        <FormField
-          label="Mobile number"
-          type="tel"
-          autoComplete="tel"
-          hint="Optional. Include the country code, e.g. +971501234567"
-          error={errors.phone?.message}
-          {...register('phone')}
-        />
-        <FormField
-          label="Country"
-          hint="Optional. 2-letter code, e.g. AE"
-          maxLength={2}
-          error={errors.country?.message}
-          {...register('country')}
-        />
-        <FormField
-          label="Password"
-          type="password"
-          autoComplete="new-password"
-          hint="At least 8 characters, with upper case, lower case and a number"
-          error={errors.password?.message}
-          {...register('password')}
-        />
-        <FormField
-          label="Confirm password"
-          type="password"
-          autoComplete="new-password"
-          error={errors.confirmPassword?.message}
-          {...register('confirmPassword')}
-        />
+            <FormField
+              label="Full name"
+              autoComplete="name"
+              error={errors.fullName?.message}
+              {...register('fullName')}
+            />
+            <FormField
+              label="Email"
+              type="email"
+              autoComplete="email"
+              error={errors.email?.message}
+              {...register('email')}
+            />
+            <FormField
+              label="Date of birth"
+              type="date"
+              autoComplete="bday"
+              hint="Drivers must meet our minimum age. We ask once, here, so it never interrupts a booking."
+              error={errors.dateOfBirth?.message}
+              {...register('dateOfBirth')}
+            />
+            <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_8rem]">
+              <FormField
+                label="Mobile number"
+                type="tel"
+                autoComplete="tel"
+                hint="Optional. With country code, e.g. +971501234567"
+                error={errors.phone?.message}
+                {...register('phone')}
+              />
+              <FormField
+                label="Country"
+                hint="Optional, e.g. AE"
+                maxLength={2}
+                error={errors.country?.message}
+                {...register('country')}
+              />
+            </div>
+            <FormField
+              label="Password"
+              type="password"
+              autoComplete="new-password"
+              hint="At least 8 characters, with upper case, lower case and a number"
+              error={errors.password?.message}
+              {...register('password')}
+            />
+            <FormField
+              label="Confirm password"
+              type="password"
+              autoComplete="new-password"
+              error={errors.confirmPassword?.message}
+              {...register('confirmPassword')}
+            />
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full rounded-md bg-ink-900 px-4 py-2 text-sm font-medium text-white hover:bg-ink-800 disabled:opacity-50"
-        >
-          {isSubmitting ? 'Creating account…' : 'Create account'}
-        </button>
-      </form>
+            <button type="submit" disabled={isSubmitting} className="btn btn-primary btn-lg w-full">
+              {isSubmitting ? 'Creating account…' : 'Create account'}
+              {!isSubmitting && <ArrowRight aria-hidden className="btn-arrow h-4 w-4" />}
+            </button>
+          </form>
 
-      <p className="mt-4 text-sm text-ink-600">
-        Already registered?{' '}
-        <Link to="/login" className="font-medium text-ink-900 underline">
-          Sign in
-        </Link>
-      </p>
+          <p className="mt-8 text-sm text-ink-500">
+            Already registered?{' '}
+            <Link to="/login" className="font-semibold text-ink-950 underline underline-offset-4">
+              Sign in
+            </Link>
+          </p>
+        </div>
+
+        <AuthVisual />
+      </div>
     </div>
   );
 }

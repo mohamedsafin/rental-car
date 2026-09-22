@@ -17,7 +17,7 @@
  * without someone signing it off.
  */
 import { Prisma } from '@prisma/client';
-import type { DamageStatus, DamageType } from '@prisma/client';
+import type { DamageStatus, DamageType, Role } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { logger } from '../../config/logger';
 import { ApiError } from '../../utils/ApiError';
@@ -28,7 +28,7 @@ import { auditService } from '../audit/service';
 export interface FleetActor {
   id: string;
   email: string;
-  role: 'CUSTOMER' | 'ADMIN' | 'STAFF';
+  role: Role;
   ipAddress?: string;
   userAgent?: string;
 }
@@ -220,7 +220,7 @@ export const damagesService = {
             estimatedAmount: damage.estimatedAmount?.toFixed(2) ?? null,
             approvedAmount: damage.approvedAmount!.toFixed(2),
             assessmentNotes: damage.assessmentNotes,
-          } as Prisma.InputJsonValue,
+          },
           createdById: actor.id,
           status: 'PENDING',
         },

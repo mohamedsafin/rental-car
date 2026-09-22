@@ -111,6 +111,34 @@ export const SettingKey = {
   /// JSON array of day offsets, e.g. [30, 15, 7, 0] (BRD 41).
   EXPIRY_REMINDER_DAYS: 'fleet.expiry_reminder_days',
 
+  /*
+   * What the company adds on top of the authority's own figure when passing a
+   * fine or a Salik crossing to the customer (BRD 28, 29 - "additional company
+   * charge", left to the client).
+   *
+   * A POLICY, not a per-record decision. Before these existed the handling fee
+   * was typed in by hand on every record, so two identical fines could carry
+   * different fees depending on who keyed them - and the customer had no way
+   * to know which was right. Staff can still override on a single record where
+   * a case genuinely warrants it; these decide the default.
+   */
+  FINE_SERVICE_FEE: 'fines.service_fee',
+  TOLL_SERVICE_FEE: 'tolls.service_fee',
+
+  /*
+   * Below this, a toll on a SHORT rental is written off rather than chased.
+   *
+   * Not meanness, arithmetic: a two-day customer who crossed four gates owes
+   * about AED 16, and they have gone home. The staff minutes spent recovering
+   * it cost more than the money, and the attempt annoys a customer over the
+   * price of a coffee.
+   *
+   * It deliberately does NOT apply to monthly rentals. There the charge rides
+   * along on a bill the customer is already paying, so collecting it costs
+   * nothing and writing it off would just be giving money away.
+   */
+  TOLL_AUTO_WRITE_OFF_BELOW: 'tolls.auto_write_off_below',
+
   /// Printed on every invoice. All client-supplied; blank until they are.
   COMPANY_NAME: 'company.name',
   COMPANY_ADDRESS: 'company.address',

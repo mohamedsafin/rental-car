@@ -4,7 +4,13 @@
  * Auth contracts, mirroring the backend's PublicUser.
  */
 
-export type Role = 'CUSTOMER' | 'ADMIN' | 'STAFF';
+/**
+ * Who someone is, and therefore what they can reach.
+ *
+ * Mirrors the backend enum. Ordered by reach so a list built from it reads
+ * from narrowest to widest rather than alphabetically.
+ */
+export type Role = 'CUSTOMER' | 'STAFF' | 'MANAGER' | 'ACCOUNTANT' | 'INSPECTOR' | 'ADMIN';
 export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED';
 
 export interface User {
@@ -17,6 +23,8 @@ export interface User {
   country: string | null;
   emailVerified: boolean;
   lastLoginAt: string | null;
+  /** Which branch a member of staff works at. Null for everyone else. */
+  branchId: string | null;
   createdAt: string;
 }
 

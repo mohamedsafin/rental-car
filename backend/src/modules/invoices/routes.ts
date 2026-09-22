@@ -11,7 +11,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate';
-import { authorizeAdmin, authorizeStaff } from '../../middleware/authorize';
+import { authorizeAdmin, authorizeFinance } from '../../middleware/authorize';
 import { getValidatedQuery, validate } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { sendCreated, sendPaginated, sendSuccess } from '../../utils/apiResponse';
@@ -20,6 +20,7 @@ import { prisma } from '../../config/prisma';
 import { requestContext } from '../audit/service';
 import { invoicesService, type InvoiceActor } from './service';
 import { renderInvoicePdf } from './pdf';
+import { isBackOffice } from '../../modules/auth/roles';
 
 const idParam = z.object({ id: z.string().uuid('Invalid invoice id') });
 
@@ -61,11 +62,11 @@ router.get(
   validate({ query: listSchema }),
   asyncHandler(async (req, res) => {
     const query = getValidatedQuery<z.infer<typeof listSchema>>(req);
-    const isBackOffice = req.user!.role === 'ADMIN' || req.user!.role === 'STAFF';
+    const backOffice = isBackOffice(req.user!.role);
 
     const { items, total } = await invoicesService.list({
       ...query,
-      customerId: isBackOffice ? query.customerId : req.user!.id,
+      customerId: backOffice ? query.customerId : req.user!.id,
     });
 
     sendPaginated(res, items, query.page, query.limit, total);
@@ -115,11 +116,30 @@ router.get(
 /** POST /invoices - issue the invoice for a booking. */
 router.post(
   '/',
-  authorizeStaff,
+  authorizeFinance,
   validate({ body: issueSchema }),
   asyncHandler(async (req, res) => {
     const { bookingId } = req.body as z.infer<typeof issueSchema>;
     sendCreated(res, await invoicesService.issueForBooking(bookingId, actorFrom(req)));
+  }),
+);
+
+/**
+ * POST /invoices/instalment/:id - issue the invoice for ONE MONTH.
+ *
+ * Normally automatic: a month is invoiced the moment its payment clears. This
+ * is the hand crank for the case where that failed - a numbering clash, a
+ * database blip - so a missing invoice is recoverable without a support call.
+ */
+router.post(
+  '/instalment/:id',
+  authorizeFinance,
+  validate({ params: idParam }),
+  asyncHandler(async (req, res) => {
+    sendCreated(
+      res,
+      await invoicesService.issueForInstalment(req.params.id as string, actorFrom(req)),
+    );
   }),
 );
 

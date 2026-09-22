@@ -13,6 +13,12 @@
  */
 import { useState, type FormEvent } from 'react';
 import { useRecordReturn } from '../features/rentals/useRentals';
+import ConditionSignOff from './ConditionSignOff';
+import {
+  emptySignOff,
+  signOffPayload,
+  type SignOffState,
+} from './conditionSignOff.helpers';
 import type { Rental } from '../types/rental';
 
 interface ReturnResult {
@@ -21,19 +27,32 @@ interface ReturnResult {
   warnings: string[];
 }
 
+/** What the pickup inspection recorded as handed over. Stored as JSON, so checked. */
+function handedOverAccessories(rental: Rental): string[] {
+  const pickup = rental.inspections.find((inspection) => inspection.type === 'PICKUP');
+  const list = pickup?.accessories;
+  return Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string') : [];
+}
+
 export default function ReturnForm({ bookingId, rental }: { bookingId: string; rental: Rental }) {
   const recordReturn = useRecordReturn(bookingId);
+  const handedOver = handedOverAccessories(rental);
 
+  // Starts with everything ticked, like the readings above: staff untick
+  // whatever did not come back, and that difference is what gets recorded.
+  const [returnedAccessories, setReturnedAccessories] = useState<string[]>(handedOver);
   const [mileage, setMileage] = useState(String(rental.pickupMileage));
   const [fuelPercent, setFuelPercent] = useState(String(rental.pickupFuelPercent));
   const [needsCleaning, setNeedsCleaning] = useState(false);
   const [damageNotes, setDamageNotes] = useState('');
   const [cleanliness, setCleanliness] = useState('');
   const [conditionNotes, setConditionNotes] = useState('');
+  const [signOff, setSignOff] = useState<SignOffState>(emptySignOff);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReturnResult | null>(null);
 
   const overdue = new Date() > new Date(rental.dueBackAt);
+  const missingAccessories = handedOver.filter((item) => !returnedAccessories.includes(item));
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -47,6 +66,8 @@ export default function ReturnForm({ bookingId, rental }: { bookingId: string; r
         damageNotes: damageNotes.trim() || undefined,
         cleanliness: cleanliness.trim() || undefined,
         conditionNotes: conditionNotes.trim() || undefined,
+        missingAccessories,
+        ...signOffPayload(signOff),
       },
       {
         onSuccess: (data) =>
@@ -84,6 +105,12 @@ export default function ReturnForm({ bookingId, rental }: { bookingId: string; r
               ))}
             </ul>
           </>
+        )}
+
+        {missingAccessories.length > 0 && (
+          <p className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            Not returned: {missingAccessories.join(', ')}
+          </p>
         )}
 
         {result.warnings.length > 0 && (
@@ -155,6 +182,47 @@ export default function ReturnForm({ bookingId, rental }: { bookingId: string; r
         </label>
       </div>
 
+      <fieldset className="mt-4">
+        <legend className="text-sm font-medium text-slate-700">Accessories returned</legend>
+        {handedOver.length === 0 ? (
+          <p className="mt-1 text-xs text-slate-500">No accessories were recorded at handover.</p>
+        ) : (
+          <>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {handedOver.map((item) => (
+                <label
+                  key={item}
+                  className={
+                    returnedAccessories.includes(item)
+                      ? 'cursor-pointer rounded-full border border-slate-900 bg-slate-900 px-3 py-1 text-sm text-white'
+                      : 'cursor-pointer rounded-full border border-red-300 bg-red-50 px-3 py-1 text-sm text-red-700 line-through'
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={returnedAccessories.includes(item)}
+                    onChange={() =>
+                      setReturnedAccessories((current) =>
+                        current.includes(item)
+                          ? current.filter((a) => a !== item)
+                          : [...current, item],
+                      )
+                    }
+                  />
+                  {item}
+                </label>
+              ))}
+            </div>
+            <span className="mt-1 block text-xs text-slate-500">
+              {missingAccessories.length === 0
+                ? 'Everything handed over at pickup. Untick anything that did not come back.'
+                : `Missing: ${missingAccessories.join(', ')}`}
+            </span>
+          </>
+        )}
+      </fieldset>
+
       <label className="mt-4 block">
         <span className="text-sm font-medium text-slate-700">New damage</span>
         <textarea
@@ -197,6 +265,8 @@ export default function ReturnForm({ bookingId, rental }: { bookingId: string; r
           Needs cleaning beyond normal use (raises a cleaning charge)
         </span>
       </label>
+
+      <ConditionSignOff value={signOff} onChange={setSignOff} moment="return" />
 
       <button
         type="submit"

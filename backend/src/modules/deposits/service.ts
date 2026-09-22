@@ -20,17 +20,19 @@
  * cleaning) and the id of whoever recorded it.
  */
 import { Prisma } from '@prisma/client';
-import type { DeductionCategory } from '@prisma/client';
+import type { DeductionCategory, Role } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { ApiError } from '../../utils/ApiError';
 import { auditService } from '../audit/service';
+import { fireAndForget, notify } from '../notifications/triggers';
+import { settlementCheck } from '../fleet/settlementCheck';
 
 const ZERO = new Prisma.Decimal(0);
 
 export interface DepositActor {
   id: string;
   email: string;
-  role: 'CUSTOMER' | 'ADMIN' | 'STAFF';
+  role: Role;
   ipAddress?: string;
   userAgent?: string;
 }
@@ -178,7 +180,26 @@ export const depositsService = {
       userAgent: actor.userAgent,
     });
 
-    return (await depositsService.getByBookingId(bookingId))!;
+    const updated = (await depositsService.getByBookingId(bookingId))!;
+
+    /*
+     * Tell the customer their deposit just went down, and why.
+     *
+     * Detached: the money has already moved and a mail server being unreachable
+     * must not undo a recorded deduction. Silence here is what turns a correct
+     * charge into a dispute - they discover it when the refund is short.
+     */
+    fireAndForget(
+      notify.depositDeducted(bookingId, {
+        amount: amount.toFixed(2),
+        category: input.category,
+        reason: input.reason,
+        balance: updated.balance,
+        currency: updated.currency,
+      }),
+    );
+
+    return updated;
   },
 
   /**
@@ -191,7 +212,7 @@ export const depositsService = {
    */
   async release(
     bookingId: string,
-    input: { amount?: string; reason?: string },
+    input: { amount?: string; reason?: string; releaseAnyway?: boolean },
     actor: DepositActor,
   ): Promise<DepositSummary> {
     const summary = await depositsService.getByBookingId(bookingId);
@@ -200,6 +221,35 @@ export const depositsService = {
     if (summary.status !== 'HELD' && summary.status !== 'PARTIALLY_RELEASED') {
       throw ApiError.conflict('This deposit is not currently held');
     }
+
+    /*
+     * ===========================================================================
+     * THE LAST MOMENT THE MONEY IS STILL COLLECTABLE
+     * ===========================================================================
+     * The counter screen already shows what is outstanding before the deposit
+     * goes back - but showing is not enforcing. Anyone can release the deposit
+     * from a list page, a second tab, or a direct API call, and once it is
+     * back in the customer's account an unpaid Salik crossing is the company's
+     * loss: nobody chases AED 24 across a border.
+     *
+     * So the refusal lives HERE, where every path to a release passes through,
+     * and it names the figure rather than saying "not allowed". Staff who have
+     * a reason to release anyway can, deliberately, with `releaseAnyway` - and
+     * that decision is recorded on the transaction and in the audit trail
+     * instead of being invisible.
+     */
+    const settlement = await settlementCheck.forBooking(bookingId);
+    const outstanding = new Prisma.Decimal(settlement.outstandingTotal);
+
+    if (outstanding.greaterThan(0) && !input.releaseAnyway) {
+      throw ApiError.conflict(
+        `${settlement.currency} ${outstanding.toFixed(2)} is still outstanding on this booking ` +
+          `(${settlement.outstanding.length} item(s) - fines or tolls not yet recovered). ` +
+          'Recover it from the deposit first, or release anyway if you have decided to write it off.',
+      );
+    }
+
+    const overridden = outstanding.greaterThan(0) && input.releaseAnyway === true;
 
     const balance = new Prisma.Decimal(summary.balance);
     const amount = input.amount ? new Prisma.Decimal(input.amount) : balance;
@@ -223,7 +273,11 @@ export const depositsService = {
           depositId: summary.id,
           type: 'RELEASE',
           amount,
-          reason: input.reason?.trim() ?? 'Deposit returned to customer',
+          reason:
+            (input.reason?.trim() || 'Deposit returned to customer') +
+            (overridden
+              ? ` (released with ${settlement.currency} ${outstanding.toFixed(2)} still outstanding)`
+              : ''),
           createdById: actor.id,
         },
       });
@@ -254,12 +308,28 @@ export const depositsService = {
         bookingNumber: summary.bookingNumber,
         amount: amount.toFixed(2),
         remaining: remainingAfter.toFixed(2),
+        // Present only when somebody chose to release over the refusal. The
+        // question "who let this go?" then has an answer.
+        ...(overridden
+          ? { releasedOverOutstanding: outstanding.toFixed(2), items: settlement.outstanding.length }
+          : {}),
       },
       ipAddress: actor.ipAddress,
       userAgent: actor.userAgent,
     });
 
-    return (await depositsService.getByBookingId(bookingId))!;
+    const settled = (await depositsService.getByBookingId(bookingId))!;
+
+    // The counterpart message. Its template has existed all along with nothing
+    // sending it, so a customer heard nothing when their money went back.
+    fireAndForget(
+      notify.depositReleased(bookingId, {
+        amount: amount.toFixed(2),
+        currency: settled.currency,
+      }),
+    );
+
+    return settled;
   },
 
   /** Deposits needing attention (BRD 27 admin "Deposits"). */

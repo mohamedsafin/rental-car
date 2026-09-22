@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { prisma, disconnectPrisma } from '../src/config/prisma';
-import { API, cleanupUsers, createUser, loginAndGetToken } from './helpers';
+import { API, cleanupUsers, createUser, loginAndGetToken, payRental } from './helpers';
 
 const app = createApp();
 const createdEmails: string[] = [];
@@ -60,6 +60,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Payments come first: a payment row holds its booking down against
+  // deletion, and these bookings carry one now that READY_FOR_PICKUP requires
+  // cleared money.
+  await prisma.refund.deleteMany({ where: { payment: { booking: { vehicleId } } } });
+  await prisma.payment.deleteMany({ where: { booking: { vehicleId } } });
   await prisma.bookingStatusHistory.deleteMany({ where: { booking: { vehicleId } } });
   await prisma.bookingService.deleteMany({ where: { booking: { vehicleId } } });
   await prisma.booking.deleteMany({ where: { vehicleId } });
@@ -218,9 +223,13 @@ describe('status lifecycle', () => {
   it('walks the happy path from verification to completed', async () => {
     const id = await makeBooking([1000, 1005]);
 
+    // READY_FOR_PICKUP refuses an online booking with no cleared payment, so
+    // the money has to be on file before the walk reaches it.
+    await payRental(id);
+
     for (const status of [
-      'PAYMENT_PENDING',
       'CONFIRMED',
+      'PAYMENT_PENDING',
       'READY_FOR_PICKUP',
       'ACTIVE',
       'RETURN_PENDING',
@@ -245,9 +254,10 @@ describe('status lifecycle', () => {
 
   it('refuses to move a COMPLETED booking', async () => {
     const id = await makeBooking([1020, 1025]);
+    await payRental(id);
     for (const status of [
-      'PAYMENT_PENDING',
       'CONFIRMED',
+      'PAYMENT_PENDING',
       'READY_FOR_PICKUP',
       'ACTIVE',
       'RETURN_PENDING',
@@ -269,8 +279,8 @@ describe('status lifecycle', () => {
 
   it('records every transition in the history', async () => {
     const id = await makeBooking([1040, 1045]);
-    await setStatus(id, 'PAYMENT_PENDING');
     await setStatus(id, 'CONFIRMED');
+    await setStatus(id, 'PAYMENT_PENDING');
 
     const res = await request(app)
       .get(`${API}/bookings/${id}`)
@@ -279,7 +289,7 @@ describe('status lifecycle', () => {
     const history = res.body.data.booking.statusHistory;
     // Creation + two transitions.
     expect(history).toHaveLength(3);
-    expect(history[history.length - 1].to).toBe('CONFIRMED');
+    expect(history[history.length - 1].to).toBe('PAYMENT_PENDING');
   });
 });
 
@@ -328,8 +338,9 @@ describe('cancellation (BRD 31)', () => {
   it('refuses to cancel a rental that is already ACTIVE', async () => {
     const created = await book(customerToken, [1130, 1135]);
     const id = created.body.data.booking.id;
+    await payRental(id);
 
-    for (const status of ['PAYMENT_PENDING', 'CONFIRMED', 'READY_FOR_PICKUP', 'ACTIVE']) {
+    for (const status of ['CONFIRMED', 'PAYMENT_PENDING', 'READY_FOR_PICKUP', 'ACTIVE']) {
       await request(app)
         .patch(`${API}/bookings/${id}/status`)
         .set('Authorization', `Bearer ${adminToken}`)
